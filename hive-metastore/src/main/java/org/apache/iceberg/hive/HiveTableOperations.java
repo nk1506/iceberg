@@ -19,6 +19,10 @@
 package org.apache.iceberg.hive;
 
 import static org.apache.iceberg.TableProperties.GC_ENABLED;
+import static org.apache.iceberg.hive.HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE;
+import static org.apache.iceberg.hive.HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT;
+import static org.apache.iceberg.hive.HiveCatalogUtil.isTableWithTypeExists;
+import static org.apache.iceberg.hive.HiveCatalogUtil.validateTableIsIceberg;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import java.util.Collections;
@@ -47,10 +51,11 @@ import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
-import org.apache.iceberg.exceptions.NoSuchIcebergTableException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.hadoop.ConfigProperties;
@@ -75,14 +80,9 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
 
   private static final String HIVE_ICEBERG_METADATA_REFRESH_MAX_RETRIES =
       "iceberg.hive.metadata-refresh-max-retries";
-  // the max size is based on HMS backend database. For Hive versions below 2.3, the max table
-  // parameter size is 4000
-  // characters, see https://issues.apache.org/jira/browse/HIVE-12274
-  // set to 0 to not expose Iceberg metadata in HMS Table properties.
-  private static final String HIVE_TABLE_PROPERTY_MAX_SIZE = "iceberg.hive.table-property-max-size";
+
   private static final String NO_LOCK_EXPECTED_KEY = "expected_parameter_key";
   private static final String NO_LOCK_EXPECTED_VALUE = "expected_parameter_value";
-  private static final long HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT = 32672;
   private static final int HIVE_ICEBERG_METADATA_REFRESH_MAX_RETRIES_DEFAULT = 2;
   private static final BiMap<String, String> ICEBERG_TO_HMS_TRANSLATION =
       ImmutableBiMap.of(
@@ -139,6 +139,18 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
             HIVE_ICEBERG_METADATA_REFRESH_MAX_RETRIES_DEFAULT);
     this.maxHiveTablePropertySize =
         conf.getLong(HIVE_TABLE_PROPERTY_MAX_SIZE, HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT);
+  }
+
+  @Override
+  public TableMetadata current() {
+    if (isTableWithTypeExists(
+        metaClients,
+        TableIdentifier.of(Namespace.of(database), tableName),
+        TableType.VIRTUAL_VIEW)) {
+      throw new AlreadyExistsException(
+          "View with same name already exists: %s.%s", database, tableName);
+    }
+    return super.current();
   }
 
   @Override
@@ -558,15 +570,6 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
     } finally {
       lock.unlock();
     }
-  }
-
-  static void validateTableIsIceberg(Table table, String fullName) {
-    String tableType = table.getParameters().get(TABLE_TYPE_PROP);
-    NoSuchIcebergTableException.check(
-        tableType != null && tableType.equalsIgnoreCase(ICEBERG_TABLE_TYPE_VALUE),
-        "Not an iceberg table: %s (type=%s)",
-        fullName,
-        tableType);
   }
 
   /**

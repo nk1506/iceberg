@@ -18,6 +18,10 @@
  */
 package org.apache.iceberg.hive;
 
+import static org.apache.iceberg.hive.HiveCatalogUtil.isTableWithTypeExists;
+import static org.apache.iceberg.hive.HiveCatalogUtil.validateTableIsIceberg;
+import static org.apache.iceberg.hive.HiveCatalogUtil.validateTableIsIcebergView;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,6 +30,7 @@ import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.AlreadyExistsException;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.InvalidOperationException;
@@ -33,7 +38,6 @@ import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.UnknownDBException;
-import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
@@ -46,6 +50,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.FileIO;
@@ -56,11 +61,14 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.util.LocationUtil;
+import org.apache.iceberg.view.BaseMetastoreViewCatalog;
+import org.apache.iceberg.view.ViewOperations;
 import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespaces, Configurable {
+public class HiveCatalog extends BaseMetastoreViewCatalog
+    implements SupportsNamespaces, Configurable {
   public static final String LIST_ALL_TABLES = "list-all-tables";
   public static final String LIST_ALL_TABLES_DEFAULT = "false";
 
@@ -81,6 +89,11 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
   private Map<String, String> catalogProperties;
 
   public HiveCatalog() {}
+
+  @Override
+  protected ViewOperations newViewOps(TableIdentifier tableIdentifier) {
+    return new HiveViewOperations(conf, clients, fileIO, name, tableIdentifier);
+  }
 
   @Override
   public void initialize(String inputName, Map<String, String> properties) {
@@ -135,7 +148,8 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
             tableObjects.stream()
                 .filter(
                     table ->
-                        table.getParameters() != null
+                        table.getTableType().equalsIgnoreCase(TableType.EXTERNAL_TABLE.name())
+                            && table.getParameters() != null
                             && BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE
                                 .equalsIgnoreCase(
                                     table
@@ -166,6 +180,11 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
   @Override
   public String name() {
     return name;
+  }
+
+  @Override
+  public boolean tableExists(TableIdentifier identifier) {
+    return isTableWithTypeExists(clients, identifier, TableType.EXTERNAL_TABLE);
   }
 
   @Override
@@ -235,7 +254,7 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
 
     try {
       Table table = clients.run(client -> client.getTable(fromDatabase, fromName));
-      HiveTableOperations.validateTableIsIceberg(table, fullTableName(name, from));
+      validateTableIsIceberg(table, fullTableName(name, from));
 
       table.setDbName(toDatabase);
       table.setTableName(to.name());
@@ -258,6 +277,138 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
     } catch (TException e) {
       throw new RuntimeException("Failed to rename " + from + " to " + to, e);
 
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Interrupted in call to rename", e);
+    }
+  }
+
+  @Override
+  public boolean viewExists(TableIdentifier identifier) {
+    return isTableWithTypeExists(clients, identifier, TableType.VIRTUAL_VIEW);
+  }
+
+  @Override
+  public boolean dropView(TableIdentifier identifier) {
+    if (!isValidIdentifier(identifier)) {
+      return false;
+    }
+    try {
+      String database = identifier.namespace().level(0);
+      String viewName = identifier.name();
+      Table table = clients.run(client -> client.getTable(database, viewName));
+      validateTableIsIcebergView(table, fullTableName(name, identifier));
+      clients.run(
+          client -> {
+            client.dropTable(database, viewName);
+            return null;
+          });
+      LOG.info("Dropped View: {}", identifier);
+      return true;
+
+    } catch (NoSuchViewException | NoSuchObjectException e) {
+      LOG.info("Skipping drop, View does not exist: {}", identifier, e);
+      return false;
+    } catch (TException e) {
+      throw new RuntimeException("Failed to drop " + identifier, e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Interrupted in call to dropView", e);
+    }
+  }
+
+  @Override
+  public List<TableIdentifier> listViews(Namespace namespace) {
+    Preconditions.checkArgument(
+        isValidateNamespace(namespace), "Missing database in namespace: %s", namespace);
+    String database = namespace.level(0);
+
+    try {
+      List<String> tableNames =
+          clients.run(client -> client.getTables(database, "*", TableType.VIRTUAL_VIEW));
+      List<Table> tableObjects =
+          clients.run(client -> client.getTableObjectsByName(database, tableNames));
+      List<TableIdentifier> tableIdentifiers =
+          tableObjects.stream()
+              .filter(
+                  table ->
+                      table.getParameters() != null
+                          && BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE.equalsIgnoreCase(
+                              table
+                                  .getParameters()
+                                  .get(BaseMetastoreTableOperations.TABLE_TYPE_PROP)))
+              .map(table -> TableIdentifier.of(namespace, table.getTableName()))
+              .collect(Collectors.toList());
+
+      LOG.debug(
+          "Listing of namespace: {} resulted in the following views: {}",
+          namespace,
+          tableIdentifiers);
+      return tableIdentifiers;
+
+    } catch (UnknownDBException e) {
+      throw new NoSuchNamespaceException("Namespace does not exist: %s", namespace);
+
+    } catch (TException e) {
+      throw new RuntimeException("Failed to list all views under namespace " + namespace, e);
+
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Interrupted in call to listViews", e);
+    }
+  }
+
+  @Override
+  @SuppressWarnings("FormatStringAnnotation")
+  public void renameView(TableIdentifier from, TableIdentifier originalTo) {
+
+    if (!isValidIdentifier(from)) {
+      throw new NoSuchViewException("Invalid identifier: %s", from);
+    }
+
+    if (!namespaceExists(originalTo.namespace())) {
+      throw new NoSuchNamespaceException(
+          "Cannot rename %s to %s. Namespace does not exist: %s",
+          from, originalTo, originalTo.namespace());
+    }
+
+    TableIdentifier to = removeCatalogName(originalTo);
+    Preconditions.checkArgument(isValidIdentifier(to), "Invalid identifier: %s", to);
+
+    String toDatabase = to.namespace().level(0);
+    String fromDatabase = from.namespace().level(0);
+    String fromName = from.name();
+
+    try {
+      Table fromView = clients.run(client -> client.getTable(fromDatabase, fromName));
+      validateTableIsIcebergView(fromView, fullTableName(name, from));
+      if (tableExists(to)) {
+        LOG.warn("Cannot rename view {} to {}. Table {} already exists.", from, to, to);
+        throw new AlreadyExistsException(
+            String.format("Cannot rename %s to %s. Table already exists", from, to));
+      }
+      if (viewExists(to)) {
+        LOG.warn("Cannot rename view {} to {}. View {} already exists.", from, to, to);
+        throw new AlreadyExistsException(
+            String.format("Cannot rename %s to %s. View already exists", from, to));
+      }
+
+      fromView.setDbName(toDatabase);
+      fromView.setTableName(to.name());
+      clients.run(
+          client -> {
+            MetastoreUtil.alterTable(client, fromDatabase, fromName, fromView);
+            return null;
+          });
+
+      LOG.info("Renamed view from {}, to {}", from, to);
+
+    } catch (NoSuchObjectException | NoSuchViewException e) {
+      throw new NoSuchViewException("Cannot rename %s to %s. View does not exist", from, to);
+    } catch (AlreadyExistsException e) {
+      throw new org.apache.iceberg.exceptions.AlreadyExistsException(e.getMessage());
+    } catch (TException e) {
+      throw new RuntimeException("Failed to rename " + from + " to " + to, e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new RuntimeException("Interrupted in call to rename", e);
