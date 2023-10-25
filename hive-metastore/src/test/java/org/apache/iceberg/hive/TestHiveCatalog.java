@@ -28,6 +28,10 @@ import static org.apache.iceberg.TableProperties.DEFAULT_PARTITION_SPEC;
 import static org.apache.iceberg.TableProperties.DEFAULT_SORT_ORDER;
 import static org.apache.iceberg.TableProperties.SNAPSHOT_COUNT;
 import static org.apache.iceberg.expressions.Expressions.bucket;
+import static org.apache.iceberg.hive.HiveMetastoreExtension.DB_NAME;
+import static org.apache.iceberg.hive.HiveMetastoreExtension.catalog;
+import static org.apache.iceberg.hive.HiveMetastoreExtension.hiveConf;
+import static org.apache.iceberg.hive.HiveMetastoreExtension.metastoreClient;
 import static org.apache.iceberg.types.Types.NestedField.required;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
@@ -37,6 +41,7 @@ import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -68,6 +73,7 @@ import org.apache.iceberg.TestHelpers;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.CatalogTests;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
@@ -83,11 +89,18 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
 import org.apache.thrift.TException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-public class TestHiveCatalog extends HiveMetastoreTest {
+/**
+ * Run all the tests from abstract of {@link CatalogTests}. Also, a few specific tests for HIVE too.
+ * There could be some duplicated tests that are already being covered with {@link CatalogTests}
+ * //TODO: remove duplicate tests with {@link CatalogTests}.Also use the DB/TABLE/SCHEMA from {@link
+ * CatalogTests}
+ */
+public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
   private static ImmutableMap meta =
       ImmutableMap.of(
           "owner", "apache",
@@ -95,6 +108,30 @@ public class TestHiveCatalog extends HiveMetastoreTest {
           "comment", "iceberg  hiveCatalog test");
 
   @TempDir private Path temp;
+
+  @RegisterExtension
+  public static final HiveMetastoreExtension hiveMetastoreExtension =
+      new HiveMetastoreExtension(Collections.emptyMap());
+
+  @Override
+  protected boolean requiresNamespaceCreate() {
+    return true;
+  }
+
+  @Override
+  protected boolean supportsNamesWithSlashes() {
+    return false;
+  }
+
+  @Override
+  protected boolean supportsNamesWithDot() {
+    return false;
+  }
+
+  @Override
+  protected HiveCatalog catalog() {
+    return catalog;
+  }
 
   private Schema getTestSchema() {
     return new Schema(
@@ -354,7 +391,7 @@ public class TestHiveCatalog extends HiveMetastoreTest {
   }
 
   @Test
-  public void testCreateNamespace() throws Exception {
+  public void testDatabaseAndNamespaceWithLocation() throws Exception {
     Namespace namespace1 = Namespace.of("noLocation");
     catalog.createNamespace(namespace1, meta);
     Database database1 = metastoreClient.getDatabase(namespace1.toString());
@@ -368,7 +405,7 @@ public class TestHiveCatalog extends HiveMetastoreTest {
 
     assertThatThrownBy(() -> catalog.createNamespace(namespace1))
         .isInstanceOf(AlreadyExistsException.class)
-        .hasMessage("Namespace '" + namespace1 + "' already exists!");
+        .hasMessage(String.format("Namespace already exists: %s", namespace1));
     String hiveLocalDir = temp.toFile().toURI().toString();
     // remove the trailing slash of the URI
     hiveLocalDir = hiveLocalDir.substring(0, hiveLocalDir.length() - 1);
@@ -505,30 +542,6 @@ public class TestHiveCatalog extends HiveMetastoreTest {
     assertThat(catalog.namespaceExists(Namespace.of("db2", "db2", "ns2")))
         .as("Should false to namespace doesn't exist")
         .isFalse();
-  }
-
-  @Test
-  public void testSetNamespaceProperties() throws TException {
-    Namespace namespace = Namespace.of("dbname_set");
-
-    catalog.createNamespace(namespace, meta);
-    catalog.setProperties(
-        namespace,
-        ImmutableMap.of(
-            "owner", "alter_apache",
-            "test", "test",
-            "location", "file:/data/tmp",
-            "comment", "iceberg test"));
-
-    Database database = metastoreClient.getDatabase(namespace.level(0));
-    assertThat(database.getParameters()).containsEntry("owner", "alter_apache");
-    assertThat(database.getParameters()).containsEntry("test", "test");
-    assertThat(database.getParameters()).containsEntry("group", "iceberg");
-
-    assertThatThrownBy(
-            () -> catalog.setProperties(Namespace.of("db2", "db2", "ns2"), ImmutableMap.of()))
-        .isInstanceOf(NoSuchNamespaceException.class)
-        .hasMessage("Namespace does not exist: db2.db2.ns2");
   }
 
   @Test
@@ -713,27 +726,6 @@ public class TestHiveCatalog extends HiveMetastoreTest {
   }
 
   @Test
-  public void testRemoveNamespaceProperties() throws TException {
-    Namespace namespace = Namespace.of("dbname_remove");
-
-    catalog.createNamespace(namespace, meta);
-
-    catalog.removeProperties(namespace, ImmutableSet.of("comment", "owner"));
-
-    Database database = metastoreClient.getDatabase(namespace.level(0));
-
-    assertThat(database.getParameters()).doesNotContainKey("owner");
-    assertThat(database.getParameters()).containsEntry("group", "iceberg");
-
-    assertThatThrownBy(
-            () ->
-                catalog.removeProperties(
-                    Namespace.of("db2", "db2", "ns2"), ImmutableSet.of("comment", "owner")))
-        .isInstanceOf(NoSuchNamespaceException.class)
-        .hasMessage("Namespace does not exist: db2.db2.ns2");
-  }
-
-  @Test
   public void testRemoveNamespaceOwnership() throws TException, IOException {
     removeNamespaceOwnershipAndVerify(
         "remove_individual_ownership",
@@ -859,7 +851,8 @@ public class TestHiveCatalog extends HiveMetastoreTest {
   }
 
   @Test
-  public void testDropNamespace() throws TException {
+  @Override
+  public void testDropNamespace() {
     Namespace namespace = Namespace.of("dbname_drop");
     TableIdentifier identifier = TableIdentifier.of(namespace, "table");
     Schema schema = getTestSchema();

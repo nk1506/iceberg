@@ -261,6 +261,15 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new RuntimeException("Interrupted in call to rename", e);
+    } catch (RuntimeException e) {
+      // in case of table already exists,
+      // Hive rename operation throws exception as
+      // java.lang.RuntimeException:InvalidOperationException(message:new table <> already exists)
+      if (e.getMessage().contains(String.format("new table %s already exists)", to))) {
+        throw new org.apache.iceberg.exceptions.AlreadyExistsException(
+            "Table already exists: %s", to);
+      }
+      throw new RuntimeException("Failed to rename " + from + " to " + to, e);
     }
   }
 
@@ -288,7 +297,7 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
 
     } catch (AlreadyExistsException e) {
       throw new org.apache.iceberg.exceptions.AlreadyExistsException(
-          e, "Namespace '%s' already exists!", namespace);
+          e, "Namespace already exists: %s", namespace);
 
     } catch (TException e) {
       throw new RuntimeException(
@@ -500,6 +509,9 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
         return String.format("%s/%s", databaseData.getLocationUri(), tableIdentifier.name());
       }
 
+    } catch (NoSuchObjectException e) {
+      throw new NoSuchNamespaceException(
+          e, "Namespace does not exist: %s", tableIdentifier.namespace().levels()[0]);
     } catch (TException e) {
       throw new RuntimeException(
           String.format("Metastore operation failed for %s", tableIdentifier), e);

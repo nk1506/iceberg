@@ -18,7 +18,6 @@
  */
 package org.apache.iceberg.hive;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -28,30 +27,26 @@ import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.extension.AfterEachCallback;
+import org.junit.jupiter.api.extension.BeforeEachCallback;
+import org.junit.jupiter.api.extension.ExtensionContext;
 
-/*
- * This meta-setup has been deprecated use {@link HiveMetastoreExtension} instead.
- * */
-@Deprecated
-public abstract class HiveMetastoreTest {
+public final class HiveMetastoreExtension implements AfterEachCallback, BeforeEachCallback {
 
-  protected static final String DB_NAME = "hivedb";
-  protected static final long EVICTION_INTERVAL = TimeUnit.SECONDS.toMillis(10);
+  static HiveCatalog catalog;
+  static HiveMetaStoreClient metastoreClient;
+  static TestHiveMetastore metastore;
+  static HiveConf hiveConf;
+  private final Map<String, String> hiveConfOverride;
+  static final String DB_NAME = "hivedb";
 
-  protected static HiveMetaStoreClient metastoreClient;
-  protected static HiveCatalog catalog;
-  protected static HiveConf hiveConf;
-  protected static TestHiveMetastore metastore;
-
-  @BeforeAll
-  public static void startMetastore() throws Exception {
-    startMetastore(Collections.emptyMap());
+  public HiveMetastoreExtension(Map<String, String> hiveConfOverride) {
+    this.hiveConfOverride = hiveConfOverride;
   }
 
-  public static void startMetastore(Map<String, String> hiveConfOverride) throws Exception {
-    HiveMetastoreTest.metastore = new TestHiveMetastore();
+  @Override
+  public void beforeEach(ExtensionContext extensionContext) throws Exception {
+    metastore = new TestHiveMetastore();
     HiveConf hiveConfWithOverrides = new HiveConf(TestHiveMetastore.class);
     if (hiveConfOverride != null) {
       for (Map.Entry<String, String> kv : hiveConfOverride.entrySet()) {
@@ -60,30 +55,30 @@ public abstract class HiveMetastoreTest {
     }
 
     metastore.start(hiveConfWithOverrides);
-    HiveMetastoreTest.hiveConf = metastore.hiveConf();
-    HiveMetastoreTest.metastoreClient = new HiveMetaStoreClient(hiveConfWithOverrides);
+    hiveConf = metastore.hiveConf();
+    metastoreClient = new HiveMetaStoreClient(hiveConfWithOverrides);
+
     String dbPath = metastore.getDatabasePath(DB_NAME);
     Database db = new Database(DB_NAME, "description", dbPath, Maps.newHashMap());
     metastoreClient.createDatabase(db);
-    HiveMetastoreTest.catalog =
+
+    catalog =
         (HiveCatalog)
             CatalogUtil.loadCatalog(
                 HiveCatalog.class.getName(),
                 CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE,
                 ImmutableMap.of(
                     CatalogProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS,
-                    String.valueOf(EVICTION_INTERVAL)),
+                    String.valueOf(TimeUnit.SECONDS.toMillis(10))),
                 hiveConfWithOverrides);
   }
 
-  @AfterAll
-  public static void stopMetastore() throws Exception {
-    HiveMetastoreTest.catalog = null;
-
+  @Override
+  public void afterEach(ExtensionContext extensionContext) throws Exception {
+    catalog = null;
     metastoreClient.close();
-    HiveMetastoreTest.metastoreClient = null;
-
+    metastoreClient = null;
     metastore.stop();
-    HiveMetastoreTest.metastore = null;
+    metastore = null;
   }
 }
