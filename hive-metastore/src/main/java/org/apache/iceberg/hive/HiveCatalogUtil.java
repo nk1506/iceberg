@@ -25,6 +25,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.NoSuchIcebergTableException;
 import org.apache.iceberg.exceptions.NoSuchIcebergViewException;
 import org.apache.thrift.TException;
@@ -78,10 +79,13 @@ final class HiveCatalogUtil {
   }
 
   static void validateTableIsIceberg(Table table, String fullName) {
+    if (table.getTableType().equalsIgnoreCase(TableType.VIRTUAL_VIEW.name())) {
+      throw new AlreadyExistsException(
+          "View with same name already exists: %s.%s", table.getDbName(), table.getTableName());
+    }
     String tableType = table.getParameters().get(BaseMetastoreTableOperations.TABLE_TYPE_PROP);
     NoSuchIcebergTableException.check(
-        !table.getTableType().equalsIgnoreCase(TableType.VIRTUAL_VIEW.name())
-            && tableType != null
+        tableType != null
             && tableType.equalsIgnoreCase(BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE),
         "Not an iceberg table: %s (type=%s) (tableType=%s)",
         fullName,

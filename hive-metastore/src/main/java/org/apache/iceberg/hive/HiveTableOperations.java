@@ -47,8 +47,6 @@ import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
@@ -137,18 +135,6 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
         conf.getLong(
             HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE,
             HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT);
-  }
-
-  @Override
-  public TableMetadata current() {
-    if (HiveCatalogUtil.isTableWithTypeExists(
-        metaClients,
-        TableIdentifier.of(Namespace.of(database), tableName),
-        TableType.VIRTUAL_VIEW)) {
-      throw new AlreadyExistsException(
-          "View with same name already exists: %s.%s", database, tableName);
-    }
-    return super.current();
   }
 
   @Override

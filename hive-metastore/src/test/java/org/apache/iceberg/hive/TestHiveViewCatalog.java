@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Collections;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
@@ -161,5 +162,36 @@ public class TestHiveViewCatalog extends ViewCatalogTests<HiveCatalog> {
 
     assertThatThrownBy(() -> tableCatalog().renameTable(tableIdentifier, viewIdentifier))
         .hasMessageContaining("new table ns.view already exists");
+  }
+
+  @Override
+  @Test
+  public void createTableViaTransactionThatAlreadyExistsAsView() {
+    Assumptions.assumeThat(tableCatalog())
+        .as("Only valid for catalogs that support tables")
+        .isNotNull();
+
+    TableIdentifier viewIdentifier = TableIdentifier.of("ns", "view");
+
+    if (requiresNamespaceCreate()) {
+      catalog().createNamespace(viewIdentifier.namespace());
+    }
+
+    assertThat(catalog().viewExists(viewIdentifier)).as("View should not exist").isFalse();
+
+    Transaction transaction = tableCatalog().buildTable(viewIdentifier, SCHEMA).createTransaction();
+
+    catalog()
+        .buildView(viewIdentifier)
+        .withSchema(SCHEMA)
+        .withDefaultNamespace(viewIdentifier.namespace())
+        .withQuery("spark", "select * from ns.tbl")
+        .create();
+
+    assertThat(catalog().viewExists(viewIdentifier)).as("View should exist").isTrue();
+
+    assertThatThrownBy(transaction::commitTransaction)
+        .isInstanceOf(AlreadyExistsException.class)
+        .hasMessageStartingWith("Table already exists: ns.view");
   }
 }
