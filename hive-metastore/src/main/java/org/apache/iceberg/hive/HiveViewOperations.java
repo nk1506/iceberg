@@ -18,15 +18,6 @@
  */
 package org.apache.iceberg.hive;
 
-import static org.apache.iceberg.BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE;
-import static org.apache.iceberg.BaseMetastoreTableOperations.METADATA_LOCATION_PROP;
-import static org.apache.iceberg.BaseMetastoreTableOperations.PREVIOUS_METADATA_LOCATION_PROP;
-import static org.apache.iceberg.BaseMetastoreTableOperations.TABLE_TYPE_PROP;
-import static org.apache.iceberg.hive.HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE;
-import static org.apache.iceberg.hive.HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT;
-import static org.apache.iceberg.hive.HiveCatalogUtil.isTableWithTypeExists;
-import static org.apache.iceberg.hive.HiveCatalogUtil.validateTableIsIcebergView;
-
 import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
@@ -41,6 +32,7 @@ import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.TableProperties;
@@ -82,20 +74,21 @@ final class HiveViewOperations extends BaseViewOperations {
       TableIdentifier tableIdentifier) {
     this.identifier = tableIdentifier;
     String dbName = tableIdentifier.namespace().level(0);
-    String tableName = tableIdentifier.name();
     this.conf = conf;
     this.metaClients = metaClients;
     this.fileIO = fileIO;
-    this.fullName = catalogName + "." + dbName + "." + tableName;
+    this.fullName = catalogName + "." + dbName + "." + tableIdentifier.name();
     this.database = dbName;
-    this.tableName = tableName;
+    this.tableName = tableIdentifier.name();
     this.maxHiveTablePropertySize =
-        conf.getLong(HIVE_TABLE_PROPERTY_MAX_SIZE, HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT);
+        conf.getLong(
+            HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE,
+            HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT);
   }
 
   @Override
   public ViewMetadata current() {
-    if (isTableWithTypeExists(metaClients, identifier, TableType.EXTERNAL_TABLE)) {
+    if (HiveCatalogUtil.isTableWithTypeExists(metaClients, identifier, TableType.EXTERNAL_TABLE)) {
       throw new AlreadyExistsException(
           "Table with same name already exists: %s.%s", database, tableName);
     }
@@ -107,8 +100,9 @@ final class HiveViewOperations extends BaseViewOperations {
     String metadataLocation = null;
     try {
       Table table = metaClients.run(client -> client.getTable(database, tableName));
-      validateTableIsIcebergView(table, fullName);
-      metadataLocation = table.getParameters().get(METADATA_LOCATION_PROP);
+      HiveCatalogUtil.validateTableIsIcebergView(table, fullName);
+      metadataLocation =
+          table.getParameters().get(BaseMetastoreTableOperations.METADATA_LOCATION_PROP);
     } catch (NoSuchObjectException e) {
       if (currentMetadataLocation() != null) {
         throw new NoSuchViewException("View does not exist: %s.%s", database, tableName);
@@ -141,7 +135,9 @@ final class HiveViewOperations extends BaseViewOperations {
       if (tbl != null) {
         // If we try to create the view but the metadata location is already set, then we had a
         // concurrent commit
-        if (newTable && tbl.getParameters().get(METADATA_LOCATION_PROP) != null) {
+        if (newTable
+            && tbl.getParameters().get(BaseMetastoreTableOperations.METADATA_LOCATION_PROP)
+                != null) {
           throw new AlreadyExistsException("View already exists: %s.%s", database, tableName);
         }
 
@@ -154,7 +150,8 @@ final class HiveViewOperations extends BaseViewOperations {
 
       tbl.setSd(storageDescriptor(metadata)); // set to pickup any schema changes
 
-      String metadataLocation = tbl.getParameters().get(METADATA_LOCATION_PROP);
+      String metadataLocation =
+          tbl.getParameters().get(BaseMetastoreTableOperations.METADATA_LOCATION_PROP);
       String baseMetadataLocation = base != null ? base.metadataFileLocation() : null;
       if (!Objects.equals(baseMetadataLocation, metadataLocation)) {
         throw new CommitFailedException(
@@ -191,7 +188,7 @@ final class HiveViewOperations extends BaseViewOperations {
         if (e.getMessage()
             .contains(
                 "The table has been modified. The parameter value for key '"
-                    + METADATA_LOCATION_PROP
+                    + BaseMetastoreTableOperations.METADATA_LOCATION_PROP
                     + "' is")) {
           throw new CommitFailedException(
               e, "The table %s.%s has been modified concurrently", database, tableName);
@@ -239,7 +236,9 @@ final class HiveViewOperations extends BaseViewOperations {
                 tableName,
                 hmsTable,
                 expectedMetadataLocation != null
-                    ? ImmutableMap.of(METADATA_LOCATION_PROP, expectedMetadataLocation)
+                    ? ImmutableMap.of(
+                        BaseMetastoreTableOperations.METADATA_LOCATION_PROP,
+                        expectedMetadataLocation)
                     : ImmutableMap.of());
             return null;
           });
@@ -304,11 +303,14 @@ final class HiveViewOperations extends BaseViewOperations {
       parameters.put(TableProperties.UUID, metadata.uuid());
     }
 
-    parameters.put(TABLE_TYPE_PROP, ICEBERG_TABLE_TYPE_VALUE.toUpperCase(Locale.ENGLISH));
-    parameters.put(METADATA_LOCATION_PROP, newMetadataLocation);
+    parameters.put(
+        BaseMetastoreTableOperations.TABLE_TYPE_PROP,
+        BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE.toUpperCase(Locale.ENGLISH));
+    parameters.put(BaseMetastoreTableOperations.METADATA_LOCATION_PROP, newMetadataLocation);
 
     if (currentMetadataLocation() != null && !currentMetadataLocation().isEmpty()) {
-      parameters.put(PREVIOUS_METADATA_LOCATION_PROP, currentMetadataLocation());
+      parameters.put(
+          BaseMetastoreTableOperations.PREVIOUS_METADATA_LOCATION_PROP, currentMetadataLocation());
     }
 
     setSchema(metadata, parameters);

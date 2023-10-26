@@ -19,10 +19,6 @@
 package org.apache.iceberg.hive;
 
 import static org.apache.iceberg.TableProperties.GC_ENABLED;
-import static org.apache.iceberg.hive.HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE;
-import static org.apache.iceberg.hive.HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT;
-import static org.apache.iceberg.hive.HiveCatalogUtil.isTableWithTypeExists;
-import static org.apache.iceberg.hive.HiveCatalogUtil.validateTableIsIceberg;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import java.util.Collections;
@@ -138,12 +134,14 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
             HIVE_ICEBERG_METADATA_REFRESH_MAX_RETRIES,
             HIVE_ICEBERG_METADATA_REFRESH_MAX_RETRIES_DEFAULT);
     this.maxHiveTablePropertySize =
-        conf.getLong(HIVE_TABLE_PROPERTY_MAX_SIZE, HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT);
+        conf.getLong(
+            HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE,
+            HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT);
   }
 
   @Override
   public TableMetadata current() {
-    if (isTableWithTypeExists(
+    if (HiveCatalogUtil.isTableWithTypeExists(
         metaClients,
         TableIdentifier.of(Namespace.of(database), tableName),
         TableType.VIRTUAL_VIEW)) {
@@ -168,7 +166,7 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
     String metadataLocation = null;
     try {
       Table table = metaClients.run(client -> client.getTable(database, tableName));
-      validateTableIsIceberg(table, fullName);
+      HiveCatalogUtil.validateTableIsIceberg(table, fullName);
 
       metadataLocation = table.getParameters().get(METADATA_LOCATION_PROP);
 

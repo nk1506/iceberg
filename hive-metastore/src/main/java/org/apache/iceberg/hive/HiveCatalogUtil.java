@@ -18,12 +18,10 @@
  */
 package org.apache.iceberg.hive;
 
-import static org.apache.iceberg.BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE;
-import static org.apache.iceberg.BaseMetastoreTableOperations.TABLE_TYPE_PROP;
-
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchIcebergTableException;
@@ -72,11 +70,11 @@ final class HiveCatalogUtil {
   }
 
   static void validateTableIsIcebergView(Table table, String fullName) {
-    String tableType = table.getParameters().get(TABLE_TYPE_PROP);
+    String tableType = table.getParameters().get(BaseMetastoreTableOperations.TABLE_TYPE_PROP);
     NoSuchIcebergViewException.check(
         table.getTableType().equalsIgnoreCase(TableType.VIRTUAL_VIEW.name())
             && tableType != null
-            && tableType.equalsIgnoreCase(ICEBERG_TABLE_TYPE_VALUE),
+            && tableType.equalsIgnoreCase(BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE),
         "Not an iceberg view: %s (type=%s) (tableType=%s)",
         fullName,
         tableType,
@@ -84,11 +82,11 @@ final class HiveCatalogUtil {
   }
 
   static void validateTableIsIceberg(Table table, String fullName) {
-    String tableType = table.getParameters().get(TABLE_TYPE_PROP);
+    String tableType = table.getParameters().get(BaseMetastoreTableOperations.TABLE_TYPE_PROP);
     NoSuchIcebergTableException.check(
-        table.getTableType().equalsIgnoreCase(TableType.EXTERNAL_TABLE.name())
+        !table.getTableType().equalsIgnoreCase(TableType.VIRTUAL_VIEW.name())
             && tableType != null
-            && tableType.equalsIgnoreCase(ICEBERG_TABLE_TYPE_VALUE),
+            && tableType.equalsIgnoreCase(BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE),
         "Not an iceberg table: %s (type=%s) (tableType=%s)",
         fullName,
         tableType,

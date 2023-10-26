@@ -18,10 +18,6 @@
  */
 package org.apache.iceberg.hive;
 
-import static org.apache.iceberg.hive.HiveCatalogUtil.isTableWithTypeExists;
-import static org.apache.iceberg.hive.HiveCatalogUtil.validateTableIsIceberg;
-import static org.apache.iceberg.hive.HiveCatalogUtil.validateTableIsIcebergView;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -184,7 +180,7 @@ public class HiveCatalog extends BaseMetastoreViewCatalog
 
   @Override
   public boolean tableExists(TableIdentifier identifier) {
-    return isTableWithTypeExists(clients, identifier, TableType.EXTERNAL_TABLE);
+    return HiveCatalogUtil.isTableWithTypeExists(clients, identifier, TableType.EXTERNAL_TABLE);
   }
 
   @Override
@@ -254,7 +250,7 @@ public class HiveCatalog extends BaseMetastoreViewCatalog
 
     try {
       Table table = clients.run(client -> client.getTable(fromDatabase, fromName));
-      validateTableIsIceberg(table, fullTableName(name, from));
+      HiveCatalogUtil.validateTableIsIceberg(table, fullTableName(name, from));
 
       table.setDbName(toDatabase);
       table.setTableName(to.name());
@@ -285,7 +281,7 @@ public class HiveCatalog extends BaseMetastoreViewCatalog
 
   @Override
   public boolean viewExists(TableIdentifier identifier) {
-    return isTableWithTypeExists(clients, identifier, TableType.VIRTUAL_VIEW);
+    return HiveCatalogUtil.isTableWithTypeExists(clients, identifier, TableType.VIRTUAL_VIEW);
   }
 
   @Override
@@ -297,7 +293,7 @@ public class HiveCatalog extends BaseMetastoreViewCatalog
       String database = identifier.namespace().level(0);
       String viewName = identifier.name();
       Table table = clients.run(client -> client.getTable(database, viewName));
-      validateTableIsIcebergView(table, fullTableName(name, identifier));
+      HiveCatalogUtil.validateTableIsIcebergView(table, fullTableName(name, identifier));
       clients.run(
           client -> {
             client.dropTable(database, viewName);
@@ -381,7 +377,7 @@ public class HiveCatalog extends BaseMetastoreViewCatalog
 
     try {
       Table fromView = clients.run(client -> client.getTable(fromDatabase, fromName));
-      validateTableIsIcebergView(fromView, fullTableName(name, from));
+      HiveCatalogUtil.validateTableIsIcebergView(fromView, fullTableName(name, from));
       if (tableExists(to)) {
         LOG.warn("Cannot rename view {} to {}. Table {} already exists.", from, to, to);
         throw new AlreadyExistsException(
