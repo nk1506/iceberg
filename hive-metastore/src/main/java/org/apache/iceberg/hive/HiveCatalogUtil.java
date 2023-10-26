@@ -18,6 +18,7 @@
  */
 package org.apache.iceberg.hive;
 
+import java.util.List;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -53,19 +54,14 @@ final class HiveCatalogUtil {
     String database = identifier.namespace().level(0);
     String tableName = identifier.name();
     try {
-      if (clients.run(client -> client.tableExists(database, tableName))) {
-        Table table = clients.run(client -> client.getTable(database, tableName));
-        LOG.warn("Table present with name {} and type {}.", tableName, table.getTableType());
-        return table.getTableType().equalsIgnoreCase(tableType.name());
-      }
-      return false;
+      List<String> tables = clients.run(client -> client.getTables(database, tableName, tableType));
+      return !tables.isEmpty();
     } catch (TException e) {
       throw new RuntimeException(
           "Failed to check table existence " + database + "." + tableName, e);
-
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new RuntimeException("Interrupted in call to listViews", e);
+      throw new RuntimeException("Interrupted in call to listTables", e);
     }
   }
 

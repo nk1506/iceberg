@@ -52,7 +52,7 @@ public abstract class ViewCatalogTests<C extends ViewCatalog & SupportsNamespace
           required(3, "id", Types.IntegerType.get(), "unique ID"),
           required(4, "data", Types.StringType.get()));
 
-  private static final Schema OTHER_SCHEMA =
+  protected static final Schema OTHER_SCHEMA =
       new Schema(7, required(1, "some_id", Types.IntegerType.get()));
 
   protected abstract C catalog();
