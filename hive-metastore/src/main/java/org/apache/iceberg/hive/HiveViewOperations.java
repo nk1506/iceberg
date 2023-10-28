@@ -23,8 +23,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.InvalidObjectException;
@@ -42,11 +42,12 @@ import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.exceptions.ValidationException;
-import org.apache.iceberg.hadoop.ConfigProperties;
+import org.apache.iceberg.hive.HiveCatalogUtil.CommitStatus;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
+import org.apache.iceberg.util.Tasks;
 import org.apache.iceberg.view.BaseViewOperations;
 import org.apache.iceberg.view.ViewMetadata;
 import org.apache.thrift.TException;
@@ -59,8 +60,7 @@ final class HiveViewOperations extends BaseViewOperations {
 
   private final String fullName;
   private final String database;
-  private final String tableName;
-  private final Configuration conf;
+  private final String viewName;
   private final FileIO fileIO;
   private final ClientPool<IMetaStoreClient, TException> metaClients;
   private final long maxHiveTablePropertySize;
@@ -71,15 +71,14 @@ final class HiveViewOperations extends BaseViewOperations {
       ClientPool<IMetaStoreClient, TException> metaClients,
       FileIO fileIO,
       String catalogName,
-      TableIdentifier tableIdentifier) {
-    this.identifier = tableIdentifier;
-    String dbName = tableIdentifier.namespace().level(0);
-    this.conf = conf;
+      TableIdentifier viewIdentifier) {
+    this.identifier = viewIdentifier;
+    String dbName = viewIdentifier.namespace().level(0);
     this.metaClients = metaClients;
     this.fileIO = fileIO;
-    this.fullName = catalogName + "." + dbName + "." + tableIdentifier.name();
+    this.fullName = catalogName + "." + dbName + "." + viewIdentifier.name();
     this.database = dbName;
-    this.tableName = tableIdentifier.name();
+    this.viewName = viewIdentifier.name();
     this.maxHiveTablePropertySize =
         conf.getLong(
             HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE,
@@ -90,7 +89,7 @@ final class HiveViewOperations extends BaseViewOperations {
   public ViewMetadata current() {
     if (HiveCatalogUtil.isTableWithTypeExists(metaClients, identifier, TableType.EXTERNAL_TABLE)) {
       throw new AlreadyExistsException(
-          "Table with same name already exists: %s.%s", database, tableName);
+          "Table with same name already exists: %s.%s", database, viewName);
     }
     return super.current();
   }
@@ -99,17 +98,17 @@ final class HiveViewOperations extends BaseViewOperations {
   public void doRefresh() {
     String metadataLocation = null;
     try {
-      Table table = metaClients.run(client -> client.getTable(database, tableName));
+      Table table = metaClients.run(client -> client.getTable(database, viewName));
       HiveCatalogUtil.validateTableIsIcebergView(table, fullName);
       metadataLocation =
           table.getParameters().get(BaseMetastoreTableOperations.METADATA_LOCATION_PROP);
     } catch (NoSuchObjectException e) {
       if (currentMetadataLocation() != null) {
-        throw new NoSuchViewException("View does not exist: %s.%s", database, tableName);
+        throw new NoSuchViewException("View does not exist: %s.%s", database, viewName);
       }
     } catch (TException e) {
       String errMsg =
-          String.format("Failed to get view info from metastore %s.%s", database, tableName);
+          String.format("Failed to get view info from metastore %s.%s", database, viewName);
       throw new RuntimeException(errMsg, e);
 
     } catch (InterruptedException e) {
@@ -122,64 +121,55 @@ final class HiveViewOperations extends BaseViewOperations {
   @SuppressWarnings("checkstyle:CyclomaticComplexity")
   @Override
   public void doCommit(ViewMetadata base, ViewMetadata metadata) {
-    boolean newTable = base == null;
+    boolean newView = base == null;
     String newMetadataLocation = writeNewMetadataIfRequired(metadata);
-    boolean keepHiveStats = conf.getBoolean(ConfigProperties.KEEP_HIVE_STATS, false);
-
-    boolean updateHiveTable = false;
+    boolean updateHiveView = false;
+    CommitStatus commitStatus = CommitStatus.FAILURE;
 
     try {
 
-      Table tbl = loadHmsTable();
+      Optional<Table> hmsTable = Optional.ofNullable(loadHmsTable());
+      Table view;
 
-      if (tbl != null) {
+      if (hmsTable.isPresent()) {
+        view = hmsTable.get();
         // If we try to create the view but the metadata location is already set, then we had a
         // concurrent commit
-        if (newTable
-            && tbl.getParameters().get(BaseMetastoreTableOperations.METADATA_LOCATION_PROP)
+        if (newView
+            && view.getParameters().get(BaseMetastoreTableOperations.METADATA_LOCATION_PROP)
                 != null) {
-          throw new AlreadyExistsException("View already exists: %s.%s", database, tableName);
+          HiveCatalogUtil.matchAndThrowExistenceTypeException(view);
         }
 
-        updateHiveTable = true;
+        updateHiveView = true;
         LOG.debug("Committing existing view: {}", fullName);
       } else {
-        tbl = newHmsTable(metadata);
+        view = newHmsView(metadata);
         LOG.debug("Committing new view: {}", fullName);
       }
 
-      tbl.setSd(storageDescriptor(metadata)); // set to pickup any schema changes
+      view.setSd(storageDescriptor(metadata)); // set to pickup any schema changes
 
       String metadataLocation =
-          tbl.getParameters().get(BaseMetastoreTableOperations.METADATA_LOCATION_PROP);
+          view.getParameters().get(BaseMetastoreTableOperations.METADATA_LOCATION_PROP);
       String baseMetadataLocation = base != null ? base.metadataFileLocation() : null;
       if (!Objects.equals(baseMetadataLocation, metadataLocation)) {
         throw new CommitFailedException(
-            "Base metadata location '%s' is not same as the current table metadata location '%s' for %s.%s",
-            baseMetadataLocation, metadataLocation, database, tableName);
+            "Base metadata location '%s' is not same as the current view metadata location '%s' for %s.%s",
+            baseMetadataLocation, metadataLocation, database, viewName);
       }
 
-      setHmsTableParameters(newMetadataLocation, tbl, metadata);
-
-      if (!keepHiveStats) {
-        tbl.getParameters().remove(StatsSetupConst.COLUMN_STATS_ACCURATE);
-      }
+      setHmsTableParameters(newMetadataLocation, view, metadata);
 
       try {
-        persistTable(tbl, updateHiveTable, baseMetadataLocation);
+        persistView(view, updateHiveView, baseMetadataLocation);
+        commitStatus = CommitStatus.SUCCESS;
 
-      } catch (LockException le) {
-        throw new CommitStateUnknownException(
-            "Failed to heartbeat for hive lock while "
-                + "committing changes. This can lead to a concurrent commit attempt be able to overwrite this commit. "
-                + "Please check the commit history. If you are running into this issue, try reducing "
-                + "iceberg.hive.lock-heartbeat-interval-ms.",
-            le);
       } catch (org.apache.hadoop.hive.metastore.api.AlreadyExistsException e) {
-        throw new AlreadyExistsException(e, "View already exists: %s.%s", database, tableName);
+        HiveCatalogUtil.matchAndThrowExistenceTypeException(view);
 
       } catch (InvalidObjectException e) {
-        throw new ValidationException(e, "Invalid Hive object for %s.%s", database, tableName);
+        throw new ValidationException(e, "Invalid Hive object for %s.%s", database, viewName);
 
       } catch (CommitFailedException | CommitStateUnknownException e) {
         throw e;
@@ -187,31 +177,31 @@ final class HiveViewOperations extends BaseViewOperations {
       } catch (Throwable e) {
         if (e.getMessage()
             .contains(
-                "The table has been modified. The parameter value for key '"
+                "The view has been modified. The parameter value for key '"
                     + BaseMetastoreTableOperations.METADATA_LOCATION_PROP
                     + "' is")) {
           throw new CommitFailedException(
-              e, "The table %s.%s has been modified concurrently", database, tableName);
-        }
-
-        if (e.getMessage() != null
-            && e.getMessage().contains("Table/View 'HIVE_LOCKS' does not exist")) {
-          throw new RuntimeException(
-              "Failed to acquire locks from metastore because the underlying metastore "
-                  + "table 'HIVE_LOCKS' does not exist. This can occur when using an embedded metastore which does not "
-                  + "support transactions. To fix this use an alternative metastore.",
-              e);
+              e, "The view %s.%s has been modified concurrently", database, viewName);
         }
 
         LOG.error(
             "Cannot tell if commit to {}.{} succeeded, attempting to reconnect and check.",
             database,
-            tableName,
+            viewName,
             e);
+        commitStatus = checkCommitStatus(newMetadataLocation);
+        switch (commitStatus) {
+          case SUCCESS:
+            break;
+          case FAILURE:
+            throw e;
+          case UNKNOWN:
+            throw new CommitStateUnknownException(e);
+        }
       }
     } catch (TException e) {
       throw new RuntimeException(
-          String.format("Metastore operation failed for %s.%s", database, tableName), e);
+          String.format("Metastore operation failed for %s.%s", database, viewName), e);
 
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -219,13 +209,66 @@ final class HiveViewOperations extends BaseViewOperations {
 
     } catch (LockException e) {
       throw new CommitFailedException(e);
+    } finally {
+      cleanupMetadata(commitStatus, newMetadataLocation);
     }
 
     LOG.info(
         "Committed to view {} with the new metadata location {}", fullName, newMetadataLocation);
   }
 
-  void persistTable(Table hmsTable, boolean updateHiveTable, String expectedMetadataLocation)
+  private void cleanupMetadata(CommitStatus commitStatus, String metadataLocation) {
+    try {
+      if (commitStatus == CommitStatus.FAILURE) {
+        // If we are sure the commit failed, clean up the uncommitted metadata file
+        io().deleteFile(metadataLocation);
+      }
+    } catch (RuntimeException e) {
+      LOG.error("Failed to cleanup metadata file at {}", metadataLocation, e);
+    }
+  }
+
+  private CommitStatus checkCommitStatus(String newMetadataLocation) {
+    AtomicReference<CommitStatus> status = new AtomicReference<>(CommitStatus.UNKNOWN);
+
+    Tasks.foreach(newMetadataLocation)
+        .retry(5)
+        .suppressFailureWhenFinished()
+        .exponentialBackoff(100, 1000, 10000, 2.0)
+        .onFailure(
+            (location, checkException) ->
+                LOG.error("Cannot check if commit to {} exists.", viewName(), checkException))
+        .run(
+            location -> {
+              ViewMetadata metadata = refresh();
+              String currentMetadataFileLocation = metadata.metadataFileLocation();
+              boolean commitSuccess = newMetadataLocation.equals(currentMetadataFileLocation);
+              if (commitSuccess) {
+                LOG.info(
+                    "Commit status check: Commit to {} of {} succeeded",
+                    viewName(),
+                    newMetadataLocation);
+                status.set(CommitStatus.SUCCESS);
+              } else {
+                LOG.warn(
+                    "Commit status check: Commit to {} of {} unknown, new metadata location is not current "
+                        + "or in history",
+                    viewName(),
+                    newMetadataLocation);
+              }
+            });
+
+    if (status.get() == CommitStatus.UNKNOWN) {
+      LOG.error(
+          "Cannot determine commit state to {}. Failed during checking {} times. "
+              + "Treating commit state as unknown.",
+          viewName(),
+          5);
+    }
+    return status.get();
+  }
+
+  void persistView(Table hmsTable, boolean updateHiveTable, String expectedMetadataLocation)
       throws TException, InterruptedException {
     if (updateHiveTable) {
       metaClients.run(
@@ -233,7 +276,7 @@ final class HiveViewOperations extends BaseViewOperations {
             MetastoreUtil.alterTable(
                 client,
                 database,
-                tableName,
+                viewName,
                 hmsTable,
                 expectedMetadataLocation != null
                     ? ImmutableMap.of(
@@ -253,9 +296,9 @@ final class HiveViewOperations extends BaseViewOperations {
 
   Table loadHmsTable() throws TException, InterruptedException {
     try {
-      return metaClients.run(client -> client.getTable(database, tableName));
+      return metaClients.run(client -> client.getTable(database, viewName));
     } catch (NoSuchObjectException nte) {
-      LOG.trace("Table not found {}", fullName, nte);
+      LOG.trace("View not found {}", fullName, nte);
       return null;
     }
   }
@@ -273,13 +316,13 @@ final class HiveViewOperations extends BaseViewOperations {
     return storageDescriptor;
   }
 
-  private Table newHmsTable(ViewMetadata metadata) {
+  private Table newHmsView(ViewMetadata metadata) {
     Preconditions.checkNotNull(metadata, "'metadata' parameter can't be null");
     final long currentTimeMillis = System.currentTimeMillis();
 
-    Table newTable =
+    Table newView =
         new Table(
-            tableName,
+            viewName,
             database,
             HiveHadoopUtil.currentUser(),
             (int) currentTimeMillis / 1000,
@@ -292,7 +335,7 @@ final class HiveViewOperations extends BaseViewOperations {
             null,
             TableType.VIRTUAL_VIEW.toString());
 
-    return newTable;
+    return newView;
   }
 
   private void setHmsTableParameters(String newMetadataLocation, Table tbl, ViewMetadata metadata) {

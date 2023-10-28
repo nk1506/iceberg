@@ -18,180 +18,39 @@
  */
 package org.apache.iceberg.hive;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 import java.util.Collections;
-import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.view.ViewCatalogTests;
-import org.assertj.core.api.Assumptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 
 public class TestHiveViewCatalog extends ViewCatalogTests<HiveCatalog> {
 
-  private HiveMetastoreSetup hiveMetastoreSetup;
+  private HiveCatalog catalog;
 
   @BeforeEach
   public void before() throws Exception {
-    hiveMetastoreSetup = new HiveMetastoreSetup(Collections.emptyMap());
+    HiveMetastoreTest.startMetastore(Collections.emptyMap());
+    this.catalog = HiveMetastoreTest.catalog;
   }
 
   @AfterEach
   public void after() throws Exception {
-    hiveMetastoreSetup.stopMetastore();
+    HiveMetastoreTest.stopMetastore();
   }
 
   @Override
   protected HiveCatalog catalog() {
-    return hiveMetastoreSetup.catalog;
+    return catalog;
   }
 
   @Override
   protected Catalog tableCatalog() {
-    return hiveMetastoreSetup.catalog;
+    return catalog;
   }
 
   @Override
   protected boolean requiresNamespaceCreate() {
     return true;
-  }
-
-  // Override few tests which are using AlreadyExistsException instead of NoSuchViewException
-
-  @Override
-  @Test
-  public void replaceTableViaTransactionThatAlreadyExistsAsView() {
-    Assumptions.assumeThat(catalog()).as("Only valid for catalogs that support tables").isNotNull();
-
-    TableIdentifier viewIdentifier = TableIdentifier.of("ns", "view");
-
-    if (requiresNamespaceCreate()) {
-      catalog().createNamespace(viewIdentifier.namespace());
-    }
-
-    assertThat(catalog().viewExists(viewIdentifier)).as("View should not exist").isFalse();
-
-    catalog()
-        .buildView(viewIdentifier)
-        .withSchema(SCHEMA)
-        .withDefaultNamespace(viewIdentifier.namespace())
-        .withQuery("spark", "select * from ns.tbl")
-        .create();
-
-    assertThat(catalog().viewExists(viewIdentifier)).as("View should exist").isTrue();
-
-    assertThatThrownBy(
-            () ->
-                catalog()
-                    .buildTable(viewIdentifier, SCHEMA)
-                    .replaceTransaction()
-                    .commitTransaction())
-        .isInstanceOf(AlreadyExistsException.class)
-        .hasMessageStartingWith("View with same name already exists: ns.view");
-
-    assertThat(catalog().dropView(viewIdentifier)).isTrue();
-    assertThat(catalog().viewExists(viewIdentifier)).as("View should not exist").isFalse();
-  }
-
-  @Override
-  @Test
-  public void replaceViewThatAlreadyExistsAsTable() {
-    Assumptions.assumeThat(tableCatalog())
-        .as("Only valid for catalogs that support tables")
-        .isNotNull();
-
-    TableIdentifier tableIdentifier = TableIdentifier.of("ns", "table");
-
-    if (requiresNamespaceCreate()) {
-      catalog().createNamespace(tableIdentifier.namespace());
-    }
-
-    assertThat(tableCatalog().tableExists(tableIdentifier)).as("Table should not exist").isFalse();
-
-    tableCatalog().buildTable(tableIdentifier, SCHEMA).create();
-
-    assertThat(tableCatalog().tableExists(tableIdentifier)).as("Table should exist").isTrue();
-
-    assertThatThrownBy(
-            () ->
-                catalog()
-                    .buildView(tableIdentifier)
-                    .withSchema(OTHER_SCHEMA)
-                    .withDefaultNamespace(tableIdentifier.namespace())
-                    .withQuery("spark", "select * from ns.tbl")
-                    .replace())
-        .isInstanceOf(AlreadyExistsException.class)
-        .hasMessageStartingWith("Table with same name already exists: ns.table");
-  }
-
-  @Override
-  @Test
-  public void renameTableTargetAlreadyExistsAsView() {
-    Assumptions.assumeThat(tableCatalog())
-        .as("Only valid for catalogs that support tables")
-        .isNotNull();
-
-    TableIdentifier viewIdentifier = TableIdentifier.of("ns", "view");
-    TableIdentifier tableIdentifier = TableIdentifier.of("ns", "table");
-
-    if (requiresNamespaceCreate()) {
-      catalog().createNamespace(tableIdentifier.namespace());
-    }
-
-    assertThat(tableCatalog().tableExists(tableIdentifier)).as("Table should not exist").isFalse();
-
-    tableCatalog().buildTable(tableIdentifier, SCHEMA).create();
-
-    assertThat(tableCatalog().tableExists(tableIdentifier)).as("Table should exist").isTrue();
-
-    assertThat(catalog().viewExists(viewIdentifier)).as("View should not exist").isFalse();
-
-    catalog()
-        .buildView(viewIdentifier)
-        .withSchema(SCHEMA)
-        .withDefaultNamespace(viewIdentifier.namespace())
-        .withQuery("spark", "select * from ns.tbl")
-        .create();
-
-    assertThat(catalog().viewExists(viewIdentifier)).as("View should exist").isTrue();
-
-    assertThatThrownBy(() -> tableCatalog().renameTable(tableIdentifier, viewIdentifier))
-        .hasMessageContaining("new table ns.view already exists");
-  }
-
-  @Override
-  @Test
-  public void createTableViaTransactionThatAlreadyExistsAsView() {
-    Assumptions.assumeThat(tableCatalog())
-        .as("Only valid for catalogs that support tables")
-        .isNotNull();
-
-    TableIdentifier viewIdentifier = TableIdentifier.of("ns", "view");
-
-    if (requiresNamespaceCreate()) {
-      catalog().createNamespace(viewIdentifier.namespace());
-    }
-
-    assertThat(catalog().viewExists(viewIdentifier)).as("View should not exist").isFalse();
-
-    Transaction transaction = tableCatalog().buildTable(viewIdentifier, SCHEMA).createTransaction();
-
-    catalog()
-        .buildView(viewIdentifier)
-        .withSchema(SCHEMA)
-        .withDefaultNamespace(viewIdentifier.namespace())
-        .withQuery("spark", "select * from ns.tbl")
-        .create();
-
-    assertThat(catalog().viewExists(viewIdentifier)).as("View should exist").isTrue();
-
-    assertThatThrownBy(transaction::commitTransaction)
-        .isInstanceOf(AlreadyExistsException.class)
-        .hasMessageStartingWith("Table already exists: ns.view");
   }
 }

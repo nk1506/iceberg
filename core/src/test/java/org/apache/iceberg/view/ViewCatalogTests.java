@@ -52,7 +52,7 @@ public abstract class ViewCatalogTests<C extends ViewCatalog & SupportsNamespace
           required(3, "id", Types.IntegerType.get(), "unique ID"),
           required(4, "data", Types.StringType.get()));
 
-  protected static final Schema OTHER_SCHEMA =
+  private static final Schema OTHER_SCHEMA =
       new Schema(7, required(1, "some_id", Types.IntegerType.get()));
 
   protected abstract C catalog();
@@ -368,8 +368,19 @@ public abstract class ViewCatalogTests<C extends ViewCatalog & SupportsNamespace
     assertThat(catalog().viewExists(viewIdentifier)).as("View should exist").isTrue();
 
     assertThatThrownBy(transaction::commitTransaction)
-        .isInstanceOf(AlreadyExistsException.class)
-        .hasMessageStartingWith("View with same name already exists: ns.view");
+        .satisfiesAnyOf(
+            throwable ->
+                assertThat(throwable)
+                    .isInstanceOf(AlreadyExistsException.class)
+                    .hasMessageStartingWith("Table already exists: ns.view"),
+            throwable ->
+                assertThat(throwable)
+                    .isInstanceOf(AlreadyExistsException.class)
+                    .hasMessageStartingWith("View already exists: ns.view"),
+            throwable ->
+                assertThat(throwable)
+                    .isInstanceOf(AlreadyExistsException.class)
+                    .hasMessageStartingWith("View with same name already exists: ns.view"));
   }
 
   @Test
@@ -403,8 +414,15 @@ public abstract class ViewCatalogTests<C extends ViewCatalog & SupportsNamespace
                     .buildTable(viewIdentifier, SCHEMA)
                     .replaceTransaction()
                     .commitTransaction())
-        .isInstanceOf(NoSuchTableException.class)
-        .hasMessageStartingWith("Table does not exist: ns.view");
+        .satisfiesAnyOf(
+            throwable ->
+                assertThat(throwable)
+                    .isInstanceOf(AlreadyExistsException.class)
+                    .hasMessageStartingWith("View with same name already exists: ns.view"),
+            throwable ->
+                assertThat(throwable)
+                    .isInstanceOf(NoSuchTableException.class)
+                    .hasMessageStartingWith("Table does not exist: ns.view"));
   }
 
   @Test
@@ -468,8 +486,15 @@ public abstract class ViewCatalogTests<C extends ViewCatalog & SupportsNamespace
                     .withDefaultNamespace(tableIdentifier.namespace())
                     .withQuery("spark", "select * from ns.tbl")
                     .replace())
-        .isInstanceOf(NoSuchViewException.class)
-        .hasMessageStartingWith("View does not exist: ns.table");
+        .satisfiesAnyOf(
+            throwable ->
+                assertThat(throwable)
+                    .isInstanceOf(AlreadyExistsException.class)
+                    .hasMessageStartingWith("Table with same name already exists: ns.table"),
+            throwable ->
+                assertThat(throwable)
+                    .isInstanceOf(NoSuchViewException.class)
+                    .hasMessageStartingWith("View does not exist: ns.table"));
   }
 
   @Test
@@ -718,8 +743,16 @@ public abstract class ViewCatalogTests<C extends ViewCatalog & SupportsNamespace
     assertThat(catalog().viewExists(viewIdentifier)).as("View should exist").isTrue();
 
     assertThatThrownBy(() -> tableCatalog().renameTable(tableIdentifier, viewIdentifier))
-        .isInstanceOf(AlreadyExistsException.class)
-        .hasMessageContaining("Cannot rename ns.table to ns.view. View already exists");
+        .satisfiesAnyOf(
+            throwable ->
+                assertThat(throwable)
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("new table ns.view already exists"),
+            throwable ->
+                assertThat(throwable)
+                    .isInstanceOf(AlreadyExistsException.class)
+                    .hasMessageContaining(
+                        "Cannot rename ns.table to ns.view. View already exists"));
   }
 
   @Test

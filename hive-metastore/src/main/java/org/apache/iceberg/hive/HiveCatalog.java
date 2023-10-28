@@ -21,7 +21,9 @@ package org.apache.iceberg.hive;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -124,43 +126,13 @@ public class HiveCatalog extends BaseMetastoreViewCatalog
 
   @Override
   public List<TableIdentifier> listTables(Namespace namespace) {
-    Preconditions.checkArgument(
-        isValidateNamespace(namespace), "Missing database in namespace: %s", namespace);
-    String database = namespace.level(0);
 
     try {
-      List<String> tableNames = clients.run(client -> client.getAllTables(database));
-      List<TableIdentifier> tableIdentifiers;
-
       if (listAllTables) {
-        tableIdentifiers =
-            tableNames.stream()
-                .map(t -> TableIdentifier.of(namespace, t))
-                .collect(Collectors.toList());
+        return listContents(namespace, null, table -> true);
       } else {
-        List<Table> tableObjects =
-            clients.run(client -> client.getTableObjectsByName(database, tableNames));
-        tableIdentifiers =
-            tableObjects.stream()
-                .filter(
-                    table ->
-                        table.getTableType().equalsIgnoreCase(TableType.EXTERNAL_TABLE.name())
-                            && table.getParameters() != null
-                            && BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE
-                                .equalsIgnoreCase(
-                                    table
-                                        .getParameters()
-                                        .get(BaseMetastoreTableOperations.TABLE_TYPE_PROP)))
-                .map(table -> TableIdentifier.of(namespace, table.getTableName()))
-                .collect(Collectors.toList());
+        return listContents(namespace, TableType.EXTERNAL_TABLE.name(), icebergPredicate());
       }
-
-      LOG.debug(
-          "Listing of namespace: {} resulted in the following tables: {}",
-          namespace,
-          tableIdentifiers);
-      return tableIdentifiers;
-
     } catch (UnknownDBException e) {
       throw new NoSuchNamespaceException("Namespace does not exist: %s", namespace);
 
@@ -315,33 +287,8 @@ public class HiveCatalog extends BaseMetastoreViewCatalog
 
   @Override
   public List<TableIdentifier> listViews(Namespace namespace) {
-    Preconditions.checkArgument(
-        isValidateNamespace(namespace), "Missing database in namespace: %s", namespace);
-    String database = namespace.level(0);
-
     try {
-      List<String> tableNames =
-          clients.run(client -> client.getTables(database, "*", TableType.VIRTUAL_VIEW));
-      List<Table> tableObjects =
-          clients.run(client -> client.getTableObjectsByName(database, tableNames));
-      List<TableIdentifier> tableIdentifiers =
-          tableObjects.stream()
-              .filter(
-                  table ->
-                      table.getParameters() != null
-                          && BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE.equalsIgnoreCase(
-                              table
-                                  .getParameters()
-                                  .get(BaseMetastoreTableOperations.TABLE_TYPE_PROP)))
-              .map(table -> TableIdentifier.of(namespace, table.getTableName()))
-              .collect(Collectors.toList());
-
-      LOG.debug(
-          "Listing of namespace: {} resulted in the following views: {}",
-          namespace,
-          tableIdentifiers);
-      return tableIdentifiers;
-
+      return listContents(namespace, TableType.VIRTUAL_VIEW.name(), icebergPredicate());
     } catch (UnknownDBException e) {
       throw new NoSuchNamespaceException("Namespace does not exist: %s", namespace);
 
@@ -352,6 +299,39 @@ public class HiveCatalog extends BaseMetastoreViewCatalog
       Thread.currentThread().interrupt();
       throw new RuntimeException("Interrupted in call to listViews", e);
     }
+  }
+
+  private List<TableIdentifier> listContents(
+      Namespace namespace, String tableType, Predicate<Table> tablePredicate)
+      throws TException, InterruptedException {
+    Preconditions.checkArgument(
+        isValidateNamespace(namespace), "Missing database in namespace: %s", namespace);
+    String database = namespace.level(0);
+    List<String> tableNames =
+        StringUtils.isNotEmpty(tableType)
+            ? clients.run(client -> client.getTables(database, "*", TableType.valueOf(tableType)))
+            : clients.run(client -> client.getAllTables(database));
+    List<Table> tableObjects =
+        clients.run(client -> client.getTableObjectsByName(database, tableNames));
+    List<TableIdentifier> tableIdentifiers =
+        tableObjects.stream()
+            .filter(tablePredicate)
+            .map(table -> TableIdentifier.of(namespace, table.getTableName()))
+            .collect(Collectors.toList());
+
+    LOG.debug(
+        "Listing of namespace: {} for table type {} resulted in the following: {}",
+        namespace,
+        tableType,
+        tableIdentifiers);
+    return tableIdentifiers;
+  }
+
+  private Predicate<Table> icebergPredicate() {
+    return table ->
+        table.getParameters() != null
+            && BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE.equalsIgnoreCase(
+                table.getParameters().get(BaseMetastoreTableOperations.TABLE_TYPE_PROP));
   }
 
   @Override

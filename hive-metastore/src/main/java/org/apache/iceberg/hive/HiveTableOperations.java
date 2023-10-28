@@ -47,7 +47,6 @@ import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
@@ -74,9 +73,14 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
 
   private static final String HIVE_ICEBERG_METADATA_REFRESH_MAX_RETRIES =
       "iceberg.hive.metadata-refresh-max-retries";
-
+  // the max size is based on HMS backend database. For Hive versions below 2.3, the max table
+  // parameter size is 4000
+  // characters, see https://issues.apache.org/jira/browse/HIVE-12274
+  // set to 0 to not expose Iceberg metadata in HMS Table properties.
+  private static final String HIVE_TABLE_PROPERTY_MAX_SIZE = "iceberg.hive.table-property-max-size";
   private static final String NO_LOCK_EXPECTED_KEY = "expected_parameter_key";
   private static final String NO_LOCK_EXPECTED_VALUE = "expected_parameter_value";
+  private static final long HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT = 32672;
   private static final int HIVE_ICEBERG_METADATA_REFRESH_MAX_RETRIES_DEFAULT = 2;
   private static final BiMap<String, String> ICEBERG_TO_HMS_TRANSLATION =
       ImmutableBiMap.of(
@@ -132,9 +136,7 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
             HIVE_ICEBERG_METADATA_REFRESH_MAX_RETRIES,
             HIVE_ICEBERG_METADATA_REFRESH_MAX_RETRIES_DEFAULT);
     this.maxHiveTablePropertySize =
-        conf.getLong(
-            HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE,
-            HiveCatalogUtil.HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT);
+        conf.getLong(HIVE_TABLE_PROPERTY_MAX_SIZE, HIVE_TABLE_PROPERTY_MAX_SIZE_DEFAULT);
   }
 
   @Override
@@ -197,7 +199,7 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
         if (newTable
             && tbl.getParameters().get(BaseMetastoreTableOperations.METADATA_LOCATION_PROP)
                 != null) {
-          throw new AlreadyExistsException("Table already exists: %s.%s", database, tableName);
+          HiveCatalogUtil.matchAndThrowExistenceTypeException(tbl);
         }
 
         updateHiveTable = true;
@@ -254,7 +256,7 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
                 + "iceberg.hive.lock-heartbeat-interval-ms.",
             le);
       } catch (org.apache.hadoop.hive.metastore.api.AlreadyExistsException e) {
-        throw new AlreadyExistsException(e, "Table already exists: %s.%s", database, tableName);
+        HiveCatalogUtil.matchAndThrowExistenceTypeException(tbl);
 
       } catch (InvalidObjectException e) {
         throw new ValidationException(e, "Invalid Hive object for %s.%s", database, tableName);

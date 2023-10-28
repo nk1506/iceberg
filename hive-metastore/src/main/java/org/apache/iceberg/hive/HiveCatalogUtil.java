@@ -92,4 +92,19 @@ final class HiveCatalogUtil {
         tableType,
         table.getTableType());
   }
+
+  static void matchAndThrowExistenceTypeException(Table table) {
+    if (table.getTableType().equalsIgnoreCase(TableType.VIRTUAL_VIEW.name())) {
+      throw new AlreadyExistsException(
+          "View already exists: %s.%s", table.getDbName(), table.getTableName());
+    }
+    throw new AlreadyExistsException(
+        "Table already exists: %s.%s", table.getDbName(), table.getTableName());
+  }
+
+  enum CommitStatus {
+    FAILURE,
+    SUCCESS,
+    UNKNOWN
+  }
 }
