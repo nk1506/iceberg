@@ -32,7 +32,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 
 /*
- * This meta-setup has been deprecated use {@link HiveMetastoreExtension} instead.
+ * This meta-setup has been deprecated; use {@link HiveMetastoreExtension} instead.
  * */
 @Deprecated
 public abstract class HiveMetastoreTest {

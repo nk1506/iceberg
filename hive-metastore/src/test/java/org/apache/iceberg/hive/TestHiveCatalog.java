@@ -28,10 +28,6 @@ import static org.apache.iceberg.TableProperties.DEFAULT_PARTITION_SPEC;
 import static org.apache.iceberg.TableProperties.DEFAULT_SORT_ORDER;
 import static org.apache.iceberg.TableProperties.SNAPSHOT_COUNT;
 import static org.apache.iceberg.expressions.Expressions.bucket;
-import static org.apache.iceberg.hive.HiveMetastoreExtension.DB_NAME;
-import static org.apache.iceberg.hive.HiveMetastoreExtension.catalog;
-import static org.apache.iceberg.hive.HiveMetastoreExtension.hiveConf;
-import static org.apache.iceberg.hive.HiveMetastoreExtension.metastoreClient;
 import static org.apache.iceberg.types.Types.NestedField.required;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
@@ -46,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.Database;
@@ -88,6 +85,7 @@ import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
 import org.apache.thrift.TException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
@@ -109,9 +107,25 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
 
   @TempDir private Path temp;
 
+  private HiveCatalog catalog;
+  private static final String DB_NAME = "hivedb";
+
   @RegisterExtension
-  public static final HiveMetastoreExtension hiveMetastoreExtension =
-      new HiveMetastoreExtension(Collections.emptyMap());
+  private static final HiveMetastoreExtension HIVE_METASTORE_EXTENSION =
+      new HiveMetastoreExtension(DB_NAME, Collections.emptyMap());
+
+  @BeforeEach
+  public void setup() {
+    catalog =
+        (HiveCatalog)
+            CatalogUtil.loadCatalog(
+                HiveCatalog.class.getName(),
+                CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE,
+                ImmutableMap.of(
+                    CatalogProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS,
+                    String.valueOf(TimeUnit.SECONDS.toMillis(10))),
+                HIVE_METASTORE_EXTENSION.hiveConf());
+  }
 
   @Override
   protected boolean requiresNamespaceCreate() {
@@ -329,7 +343,8 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
     String location = temp.resolve(tbl).toString();
     try {
       Table table = catalog.createTable(tableIdent, schema, spec, location, properties);
-      org.apache.hadoop.hive.metastore.api.Table hmsTable = metastoreClient.getTable(db, tbl);
+      org.apache.hadoop.hive.metastore.api.Table hmsTable =
+          HIVE_METASTORE_EXTENSION.metastoreClient().getTable(db, tbl);
       assertThat(hmsTable.getOwner()).isEqualTo(owner);
       Map<String, String> hmsTableParams = hmsTable.getParameters();
       assertThat(hmsTableParams).doesNotContainKey(HiveCatalog.HMS_TABLE_OWNER);
@@ -394,7 +409,8 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
   public void testDatabaseAndNamespaceWithLocation() throws Exception {
     Namespace namespace1 = Namespace.of("noLocation");
     catalog.createNamespace(namespace1, meta);
-    Database database1 = metastoreClient.getDatabase(namespace1.toString());
+    Database database1 =
+        HIVE_METASTORE_EXTENSION.metastoreClient().getDatabase(namespace1.toString());
 
     assertThat(database1.getParameters()).containsEntry("owner", "apache");
     assertThat(database1.getParameters()).containsEntry("group", "iceberg");
@@ -417,7 +433,8 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
     Namespace namespace2 = Namespace.of("haveLocation");
 
     catalog.createNamespace(namespace2, newMeta);
-    Database database2 = metastoreClient.getDatabase(namespace2.toString());
+    Database database2 =
+        HIVE_METASTORE_EXTENSION.metastoreClient().getDatabase(namespace2.toString());
     assertThat(hiveLocalDir)
         .as("There no same location for db and namespace")
         .isEqualTo(database2.getLocationUri());
@@ -497,7 +514,7 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
     Namespace namespace = Namespace.of(name);
 
     catalog.createNamespace(namespace, prop);
-    Database db = metastoreClient.getDatabase(namespace.toString());
+    Database db = HIVE_METASTORE_EXTENSION.metastoreClient().getDatabase(namespace.toString());
 
     assertThat(db.getOwnerName()).isEqualTo(expectedOwner);
     assertThat(db.getOwnerType()).isEqualTo(expectedOwnerType);
@@ -719,7 +736,7 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
         name, propToCreate, expectedOwnerPostCreate, expectedOwnerTypePostCreate);
 
     catalog.setProperties(Namespace.of(name), propToSet);
-    Database database = metastoreClient.getDatabase(name);
+    Database database = HIVE_METASTORE_EXTENSION.metastoreClient().getDatabase(name);
 
     assertThat(database.getOwnerName()).isEqualTo(expectedOwnerPostSet);
     assertThat(database.getOwnerType()).isEqualTo(expectedOwnerTypePostSet);
@@ -844,15 +861,14 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
 
     catalog.removeProperties(Namespace.of(name), propToRemove);
 
-    Database database = metastoreClient.getDatabase(name);
+    Database database = HIVE_METASTORE_EXTENSION.metastoreClient().getDatabase(name);
 
     assertThat(database.getOwnerName()).isEqualTo(expectedOwnerPostRemove);
     assertThat(database.getOwnerType()).isEqualTo(expectedOwnerTypePostRemove);
   }
 
   @Test
-  @Override
-  public void testDropNamespace() {
+  public void dropNamespace() {
     Namespace namespace = Namespace.of("dbname_drop");
     TableIdentifier identifier = TableIdentifier.of(namespace, "table");
     Schema schema = getTestSchema();
@@ -915,7 +931,9 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
   }
 
   private String defaultUri(Namespace namespace) throws TException {
-    return metastoreClient.getConfigValue("hive.metastore.warehouse.dir", "")
+    return HIVE_METASTORE_EXTENSION
+            .metastoreClient()
+            .getConfigValue("hive.metastore.warehouse.dir", "")
         + "/"
         + namespace.level(0)
         + ".db";
@@ -1091,7 +1109,8 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
   }
 
   private Map<String, String> hmsTableParameters() throws TException {
-    org.apache.hadoop.hive.metastore.api.Table hmsTable = metastoreClient.getTable(DB_NAME, "tbl");
+    org.apache.hadoop.hive.metastore.api.Table hmsTable =
+        HIVE_METASTORE_EXTENSION.metastoreClient().getTable(DB_NAME, "tbl");
     return hmsTable.getParameters();
   }
 
@@ -1124,7 +1143,7 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
             HiveCatalog.class.getName(),
             CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE,
             catalogProps,
-            hiveConf);
+            HIVE_METASTORE_EXTENSION.hiveConf());
 
     try {
       Table table =
