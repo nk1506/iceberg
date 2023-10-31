@@ -19,28 +19,22 @@
 package org.apache.iceberg.hive;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.Database;
-import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.CatalogUtil;
-import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.junit.jupiter.api.extension.AfterEachCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
-public final class HiveMetastoreExtension implements AfterEachCallback, BeforeEachCallback {
-
-  static HiveCatalog catalog;
-  static HiveMetaStoreClient metastoreClient;
-  static TestHiveMetastore metastore;
-  static HiveConf hiveConf;
+public class HiveMetastoreExtension implements BeforeEachCallback, AfterEachCallback {
+  private HiveMetaStoreClient metastoreClient;
+  private TestHiveMetastore metastore;
   private final Map<String, String> hiveConfOverride;
-  static final String DB_NAME = "hivedb";
+  private final String databaseName;
 
-  public HiveMetastoreExtension(Map<String, String> hiveConfOverride) {
+  public HiveMetastoreExtension(String databaseName, Map<String, String> hiveConfOverride) {
+    this.databaseName = databaseName;
     this.hiveConfOverride = hiveConfOverride;
   }
 
@@ -55,30 +49,32 @@ public final class HiveMetastoreExtension implements AfterEachCallback, BeforeEa
     }
 
     metastore.start(hiveConfWithOverrides);
-    hiveConf = metastore.hiveConf();
     metastoreClient = new HiveMetaStoreClient(hiveConfWithOverrides);
 
-    String dbPath = metastore.getDatabasePath(DB_NAME);
-    Database db = new Database(DB_NAME, "description", dbPath, Maps.newHashMap());
+    String dbPath = metastore.getDatabasePath(databaseName);
+    Database db = new Database(databaseName, "description", dbPath, Maps.newHashMap());
     metastoreClient.createDatabase(db);
-
-    catalog =
-        (HiveCatalog)
-            CatalogUtil.loadCatalog(
-                HiveCatalog.class.getName(),
-                CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE,
-                ImmutableMap.of(
-                    CatalogProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS,
-                    String.valueOf(TimeUnit.SECONDS.toMillis(10))),
-                hiveConfWithOverrides);
   }
 
   @Override
   public void afterEach(ExtensionContext extensionContext) throws Exception {
-    catalog = null;
-    metastoreClient.close();
+    if (null != metastoreClient) {
+      metastoreClient.close();
+    }
+
+    if (null != metastore) {
+      metastore.stop();
+    }
+
     metastoreClient = null;
-    metastore.stop();
     metastore = null;
+  }
+
+  public HiveMetaStoreClient metastoreClient() {
+    return metastoreClient;
+  }
+
+  public HiveConf hiveConf() {
+    return metastore.hiveConf();
   }
 }
