@@ -18,8 +18,6 @@
  */
 package org.apache.iceberg.hive;
 
-import static org.apache.iceberg.NullOrder.NULLS_FIRST;
-import static org.apache.iceberg.SortDirection.ASC;
 import static org.apache.iceberg.TableProperties.CURRENT_SCHEMA;
 import static org.apache.iceberg.TableProperties.CURRENT_SNAPSHOT_ID;
 import static org.apache.iceberg.TableProperties.CURRENT_SNAPSHOT_SUMMARY;
@@ -38,7 +36,6 @@ import static org.mockito.Mockito.when;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -54,20 +51,15 @@ import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.SortOrder;
-import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.TestHelpers;
-import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.CatalogTests;
@@ -80,8 +72,6 @@ import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
-import org.apache.iceberg.transforms.Transform;
-import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
 import org.apache.thrift.TException;
@@ -89,14 +79,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Run all the tests from abstract of {@link CatalogTests}. Also, a few specific tests for HIVE too.
- * There could be some duplicated tests that are already being covered with {@link CatalogTests}
- * //TODO: remove duplicate tests with {@link CatalogTests}.Also use the DB/TABLE/SCHEMA from {@link
- * CatalogTests}
+ * Run all the tests from abstract of {@link CatalogTests} with few specific tests related to HIVE.
  */
 public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
   private static ImmutableMap meta =
@@ -115,7 +100,7 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
       new HiveMetastoreExtension(DB_NAME, Collections.emptyMap());
 
   @BeforeEach
-  public void setup() {
+  public void beforeEach() {
     catalog =
         (HiveCatalog)
             CatalogUtil.loadCatalog(
@@ -154,38 +139,6 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
   }
 
   @Test
-  public void testCreateTableBuilder() throws Exception {
-    Schema schema = getTestSchema();
-    PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("data", 16).build();
-    TableIdentifier tableIdent = TableIdentifier.of(DB_NAME, "tbl");
-    String location = temp.resolve("tbl").toString();
-
-    try {
-      Table table =
-          catalog
-              .buildTable(tableIdent, schema)
-              .withPartitionSpec(spec)
-              .withLocation(location)
-              .withProperty("key1", "value1")
-              .withProperty("key2", "value2")
-              .create();
-
-      assertThat(table.location()).isEqualTo(location);
-      assertThat(table.schema().columns()).hasSize(2);
-      assertThat(table.spec().fields()).hasSize(1);
-      assertThat(table.properties()).containsEntry("key1", "value1");
-      assertThat(table.properties()).containsEntry("key2", "value2");
-      // default Parquet compression is explicitly set for new tables
-      assertThat(table.properties())
-          .containsEntry(
-              TableProperties.PARQUET_COMPRESSION,
-              TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0);
-    } finally {
-      catalog.dropTable(tableIdent);
-    }
-  }
-
-  @Test
   public void testCreateTableWithCaching() throws Exception {
     Schema schema = getTestSchema();
     PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("data", 16).build();
@@ -217,8 +170,8 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
     assertThatNoException()
         .isThrownBy(
             () -> {
-              HiveCatalog catalog = new HiveCatalog();
-              catalog.initialize("hive", Maps.newHashMap());
+              HiveCatalog hiveCatalog = new HiveCatalog();
+              hiveCatalog.initialize("hive", Maps.newHashMap());
             });
   }
 
@@ -227,8 +180,8 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
     assertThatNoException()
         .isThrownBy(
             () -> {
-              HiveCatalog catalog = new HiveCatalog();
-              catalog.toString();
+              HiveCatalog hiveCatalog = new HiveCatalog();
+              hiveCatalog.toString();
             });
   }
 
@@ -237,87 +190,13 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
     Map<String, String> properties = Maps.newHashMap();
     properties.put("uri", "thrift://examplehost:9083");
     properties.put("warehouse", "/user/hive/testwarehouse");
-    HiveCatalog catalog = new HiveCatalog();
-    catalog.initialize("hive", properties);
+    HiveCatalog hiveCatalog = new HiveCatalog();
+    hiveCatalog.initialize("hive", properties);
 
-    assertThat(catalog.getConf().get("hive.metastore.uris")).isEqualTo("thrift://examplehost:9083");
-    assertThat(catalog.getConf().get("hive.metastore.warehouse.dir"))
+    assertThat(hiveCatalog.getConf().get("hive.metastore.uris"))
+        .isEqualTo("thrift://examplehost:9083");
+    assertThat(hiveCatalog.getConf().get("hive.metastore.warehouse.dir"))
         .isEqualTo("/user/hive/testwarehouse");
-  }
-
-  @Test
-  public void testCreateTableTxnBuilder() throws Exception {
-    Schema schema = getTestSchema();
-    TableIdentifier tableIdent = TableIdentifier.of(DB_NAME, "tbl");
-    String location = temp.resolve("tbl").toString();
-
-    try {
-      Transaction txn =
-          catalog.buildTable(tableIdent, schema).withLocation(location).createTransaction();
-      txn.commitTransaction();
-      Table table = catalog.loadTable(tableIdent);
-
-      assertThat(table.location()).isEqualTo(location);
-      assertThat(table.schema().columns()).hasSize(2);
-      assertThat(table.spec().isUnpartitioned()).isTrue();
-    } finally {
-      catalog.dropTable(tableIdent);
-    }
-  }
-
-  @ParameterizedTest
-  @ValueSource(ints = {1, 2})
-  public void testReplaceTxnBuilder(int formatVersion) {
-    Schema schema = getTestSchema();
-    PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("data", 16).build();
-    TableIdentifier tableIdent = TableIdentifier.of(DB_NAME, "tbl");
-    String location = temp.resolve("tbl").toString();
-
-    try {
-      Transaction createTxn =
-          catalog
-              .buildTable(tableIdent, schema)
-              .withPartitionSpec(spec)
-              .withLocation(location)
-              .withProperty("key1", "value1")
-              .withProperty(TableProperties.FORMAT_VERSION, String.valueOf(formatVersion))
-              .createOrReplaceTransaction();
-      createTxn.commitTransaction();
-
-      Table table = catalog.loadTable(tableIdent);
-      assertThat(table.spec().fields()).hasSize(1);
-
-      String newLocation = temp.resolve("tbl-2").toString();
-
-      Transaction replaceTxn =
-          catalog
-              .buildTable(tableIdent, schema)
-              .withProperty("key2", "value2")
-              .withLocation(newLocation)
-              .replaceTransaction();
-      replaceTxn.commitTransaction();
-
-      table = catalog.loadTable(tableIdent);
-      assertThat(table.location()).isEqualTo(newLocation);
-      assertThat(table.currentSnapshot()).isNull();
-      if (formatVersion == 1) {
-        PartitionSpec v1Expected =
-            PartitionSpec.builderFor(table.schema())
-                .alwaysNull("data", "data_bucket")
-                .withSpecId(1)
-                .build();
-        assertThat(table.spec())
-            .as("Table should have a spec with one void field")
-            .isEqualTo(v1Expected);
-      } else {
-        assertThat(table.spec().isUnpartitioned()).as("Table spec must be unpartitioned").isTrue();
-      }
-
-      assertThat(table.properties()).containsEntry("key1", "value1");
-      assertThat(table.properties()).containsEntry("key2", "value2");
-    } finally {
-      catalog.dropTable(tableIdent);
-    }
   }
 
   @Test
@@ -348,58 +227,6 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
       assertThat(hmsTable.getOwner()).isEqualTo(owner);
       Map<String, String> hmsTableParams = hmsTable.getParameters();
       assertThat(hmsTableParams).doesNotContainKey(HiveCatalog.HMS_TABLE_OWNER);
-    } finally {
-      catalog.dropTable(tableIdent);
-    }
-  }
-
-  @Test
-  public void testCreateTableDefaultSortOrder() throws Exception {
-    Schema schema = getTestSchema();
-    PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("data", 16).build();
-    TableIdentifier tableIdent = TableIdentifier.of(DB_NAME, "tbl");
-
-    try {
-      Table table = catalog.createTable(tableIdent, schema, spec);
-      assertThat(table.sortOrder().orderId()).as("Order ID must match").isEqualTo(0);
-      assertThat(table.sortOrder().isUnsorted()).as("Order must unsorted").isTrue();
-
-      assertThat(hmsTableParameters())
-          .as("Must not have default sort order in catalog")
-          .doesNotContainKey(DEFAULT_SORT_ORDER);
-    } finally {
-      catalog.dropTable(tableIdent);
-    }
-  }
-
-  @Test
-  public void testCreateTableCustomSortOrder() throws Exception {
-    Schema schema = getTestSchema();
-    PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("data", 16).build();
-    SortOrder order = SortOrder.builderFor(schema).asc("id", NULLS_FIRST).build();
-    TableIdentifier tableIdent = TableIdentifier.of(DB_NAME, "tbl");
-
-    try {
-      Table table =
-          catalog
-              .buildTable(tableIdent, schema)
-              .withPartitionSpec(spec)
-              .withSortOrder(order)
-              .create();
-      SortOrder sortOrder = table.sortOrder();
-      assertThat(sortOrder.orderId()).as("Order ID must match").isEqualTo(1);
-      assertThat(sortOrder.fields()).as("Order must have 1 field").hasSize(1);
-      assertThat(sortOrder.fields().get(0).direction()).as("Direction must match ").isEqualTo(ASC);
-      assertThat(sortOrder.fields().get(0).nullOrder())
-          .as("Null order must match ")
-          .isEqualTo(NULLS_FIRST);
-      Transform<?, ?> transform = Transforms.identity(Types.IntegerType.get());
-      assertThat(sortOrder.fields().get(0).transform())
-          .as("Transform must match")
-          .isEqualTo(transform);
-
-      assertThat(hmsTableParameters())
-          .containsEntry(DEFAULT_SORT_ORDER, SortOrderParser.toJson(table.sortOrder()));
     } finally {
       catalog.dropTable(tableIdent);
     }
@@ -518,21 +345,6 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
 
     assertThat(db.getOwnerName()).isEqualTo(expectedOwner);
     assertThat(db.getOwnerType()).isEqualTo(expectedOwnerType);
-  }
-
-  @Test
-  public void testListNamespace() throws TException {
-    List<Namespace> namespaces;
-    Namespace namespace1 = Namespace.of("dbname1");
-    catalog.createNamespace(namespace1, meta);
-    namespaces = catalog.listNamespaces(namespace1);
-    assertThat(namespaces).as("Hive db not hive the namespace 'dbname1'").isEmpty();
-
-    Namespace namespace2 = Namespace.of("dbname2");
-    catalog.createNamespace(namespace2, meta);
-    namespaces = catalog.listNamespaces();
-
-    assertThat(namespaces).as("Hive db not hive the namespace 'dbname2'").contains(namespace2);
   }
 
   @Test
@@ -1184,42 +996,11 @@ public class TestHiveCatalog extends CatalogTests<HiveCatalog> {
     // With a trailing slash
     conf.set("hive.metastore.warehouse.dir", "s3://bucket/");
 
-    HiveCatalog catalog = new HiveCatalog();
-    catalog.setConf(conf);
+    HiveCatalog hiveCatalog = new HiveCatalog();
+    hiveCatalog.setConf(conf);
 
-    Database database = catalog.convertToDatabase(Namespace.of("database"), ImmutableMap.of());
+    Database database = hiveCatalog.convertToDatabase(Namespace.of("database"), ImmutableMap.of());
 
     assertThat(database.getLocationUri()).isEqualTo("s3://bucket/database.db");
-  }
-
-  @Test
-  public void testRegisterTable() {
-    TableIdentifier identifier = TableIdentifier.of(DB_NAME, "t1");
-    catalog.createTable(identifier, getTestSchema());
-    Table registeringTable = catalog.loadTable(identifier);
-    catalog.dropTable(identifier, false);
-    TableOperations ops = ((HasTableOperations) registeringTable).operations();
-    String metadataLocation = ((HiveTableOperations) ops).currentMetadataLocation();
-    Table registeredTable = catalog.registerTable(identifier, metadataLocation);
-    assertThat(registeredTable).isNotNull();
-    TestHelpers.assertSerializedAndLoadedMetadata(registeringTable, registeredTable);
-    String expectedMetadataLocation =
-        ((HasTableOperations) registeredTable).operations().current().metadataFileLocation();
-    assertThat(metadataLocation).isEqualTo(expectedMetadataLocation);
-    assertThat(catalog.loadTable(identifier)).isNotNull();
-    assertThat(catalog.dropTable(identifier)).isTrue();
-  }
-
-  @Test
-  public void testRegisterExistingTable() {
-    TableIdentifier identifier = TableIdentifier.of(DB_NAME, "t1");
-    catalog.createTable(identifier, getTestSchema());
-    Table registeringTable = catalog.loadTable(identifier);
-    TableOperations ops = ((HasTableOperations) registeringTable).operations();
-    String metadataLocation = ((HiveTableOperations) ops).currentMetadataLocation();
-    assertThatThrownBy(() -> catalog.registerTable(identifier, metadataLocation))
-        .isInstanceOf(AlreadyExistsException.class)
-        .hasMessage("Table already exists: hivedb.t1");
-    assertThat(catalog.dropTable(identifier, true)).isTrue();
   }
 }

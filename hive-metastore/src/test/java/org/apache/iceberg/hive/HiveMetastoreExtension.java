@@ -77,4 +77,8 @@ public class HiveMetastoreExtension implements BeforeEachCallback, AfterEachCall
   public HiveConf hiveConf() {
     return metastore.hiveConf();
   }
+
+  public TestHiveMetastore metastore() {
+    return metastore;
+  }
 }

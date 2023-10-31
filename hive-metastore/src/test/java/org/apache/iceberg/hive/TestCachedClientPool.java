@@ -28,17 +28,41 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.hive.CachedClientPool.Key;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
-public class TestCachedClientPool extends HiveMetastoreTest {
+public class TestCachedClientPool {
+
+  private static final long EVICTION_INTERVAL = TimeUnit.SECONDS.toMillis(10);
+  private HiveConf hiveConf;
+  private static final String DB_NAME = "hivedb";
+
+  @RegisterExtension
+  private static final HiveMetastoreExtension HIVE_METASTORE_EXTENSION =
+      new HiveMetastoreExtension(DB_NAME, Collections.emptyMap());
+
+  @BeforeEach
+  public void initialize() {
+    hiveConf = HIVE_METASTORE_EXTENSION.hiveConf();
+  }
 
   @Test
   public void testClientPoolCleaner() throws InterruptedException {
+    CatalogUtil.loadCatalog(
+        HiveCatalog.class.getName(),
+        CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE,
+        ImmutableMap.of(
+            CatalogProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS,
+            String.valueOf(EVICTION_INTERVAL)),
+        hiveConf);
     CachedClientPool clientPool = new CachedClientPool(hiveConf, Collections.emptyMap());
     HiveClientPool clientPool1 = clientPool.clientPool();
     assertThat(clientPool1)
