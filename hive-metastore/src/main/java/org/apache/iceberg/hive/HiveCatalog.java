@@ -265,7 +265,8 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
       // in case of table already exists,
       // Hive rename operation throws exception as
       // java.lang.RuntimeException:InvalidOperationException(message:new table <> already exists)
-      if (e.getMessage().contains(String.format("new table %s already exists)", to))) {
+      if (e.getCause() instanceof InvalidOperationException
+          && e.getCause().getMessage().contains(String.format("new table %s already exists", to))) {
         throw new org.apache.iceberg.exceptions.AlreadyExistsException(
             "Table already exists: %s", to);
       }
