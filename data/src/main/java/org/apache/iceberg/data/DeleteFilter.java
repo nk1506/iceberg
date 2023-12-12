@@ -51,6 +51,8 @@ import org.apache.iceberg.relocated.com.google.common.collect.Multimaps;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.ChainOrFilter;
+import org.apache.iceberg.util.Filter;
 import org.apache.iceberg.util.StructLikeSet;
 import org.apache.iceberg.util.StructProjection;
 import org.slf4j.Logger;
@@ -151,7 +153,45 @@ public abstract class DeleteFilter<T> {
     return applyEqDeletes(applyPosDeletes(records));
   }
 
-  private List<Predicate<T>> applyEqDeletes() {
+  public CloseableIterable<T> matchEqDeletes(CloseableIterable<T> records) {
+    if (eqDeletes.isEmpty()) {
+      return records;
+    }
+
+    Multimap<Set<Integer>, DeleteFile> filesByDeleteIds =
+        Multimaps.newMultimap(Maps.newHashMap(), Lists::newArrayList);
+    for (DeleteFile delete : eqDeletes) {
+      filesByDeleteIds.put(Sets.newHashSet(delete.equalityFieldIds()), delete);
+    }
+
+    List<Predicate<T>> deleteSetFilters = Lists.newArrayList();
+    for (Map.Entry<Set<Integer>, Collection<DeleteFile>> entry :
+        filesByDeleteIds.asMap().entrySet()) {
+      Set<Integer> ids = entry.getKey();
+      Iterable<DeleteFile> deletes = entry.getValue();
+
+      Schema deleteSchema = TypeUtil.select(requiredSchema, ids);
+
+      // a projection to select and reorder fields of the file schema to match the delete rows
+      StructProjection projectRow = StructProjection.create(requiredSchema, deleteSchema);
+
+      Iterable<CloseableIterable<Record>> deleteRecords =
+          Iterables.transform(deletes, delete -> openDeletes(delete, deleteSchema));
+      StructLikeSet deleteSet =
+          Deletes.toEqualitySet(
+              // copy the delete records because they will be held in a set
+              CloseableIterable.transform(CloseableIterable.concat(deleteRecords), Record::copy),
+              deleteSchema.asStruct());
+
+      Predicate<T> predicate = record -> deleteSet.contains(projectRow.wrap(asStructLike(record)));
+      deleteSetFilters.add(predicate);
+    }
+
+    Filter<T> findDeleteRows = new ChainOrFilter<>(deleteSetFilters);
+    return findDeleteRows.filter(records);
+  }
+
+  protected List<Predicate<T>> applyEqDeletes() {
     if (isInDeleteSets != null) {
       return isInDeleteSets;
     }

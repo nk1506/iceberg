@@ -16,27 +16,25 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.iceberg.actions;
+package org.apache.iceberg.spark.actions;
 
-import java.util.Map;
-import org.apache.iceberg.SnapshotUpdate;
-import org.apache.iceberg.relocated.com.google.common.collect.Maps;
+import java.util.List;
+import org.apache.iceberg.DeleteFile;
 
-public abstract class BaseSnapshotUpdateAction<ThisT, R> extends BaseAction<ThisT, R>
-    implements SnapshotUpdateAction<ThisT, R> {
+public class DeleteRewriteActionResult {
+  private List<DeleteFile> posDeletes;
+  private List<DeleteFile> eqDeletes;
 
-  private final Map<String, String> summary = Maps.newHashMap();
-
-  protected abstract ThisT self();
-
-  @Override
-  public ThisT set(String property, String value) {
-    summary.put(property, value);
-    return self();
+  public DeleteRewriteActionResult(List<DeleteFile> eqDeletes, List<DeleteFile> posDeletes) {
+    this.eqDeletes = eqDeletes;
+    this.posDeletes = posDeletes;
   }
 
-  protected void commit(SnapshotUpdate<?> update) {
-    summary.forEach(update::set);
-    update.commit();
+  public List<DeleteFile> deletedFiles() {
+    return eqDeletes;
+  }
+
+  public List<DeleteFile> addedFiles() {
+    return posDeletes;
   }
 }

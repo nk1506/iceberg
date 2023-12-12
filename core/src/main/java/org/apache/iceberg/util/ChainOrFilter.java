@@ -16,27 +16,26 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.iceberg.actions;
+package org.apache.iceberg.util;
 
-import java.util.Map;
-import org.apache.iceberg.SnapshotUpdate;
-import org.apache.iceberg.relocated.com.google.common.collect.Maps;
+import java.util.List;
+import java.util.function.Predicate;
 
-public abstract class BaseSnapshotUpdateAction<ThisT, R> extends BaseAction<ThisT, R>
-    implements SnapshotUpdateAction<ThisT, R> {
+public class ChainOrFilter<T> extends Filter<T> {
+  private final List<Predicate<T>> filters;
 
-  private final Map<String, String> summary = Maps.newHashMap();
-
-  protected abstract ThisT self();
-
-  @Override
-  public ThisT set(String property, String value) {
-    summary.put(property, value);
-    return self();
+  public ChainOrFilter(List<Predicate<T>> filters) {
+    this.filters = filters;
   }
 
-  protected void commit(SnapshotUpdate<?> update) {
-    summary.forEach(update::set);
-    update.commit();
+  @Override
+  protected boolean shouldKeep(T item) {
+    for (Predicate<T> filter : filters) {
+      if (filter.test(item)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }

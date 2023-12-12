@@ -873,6 +873,11 @@ acceptedBreaks:
       new: "method void org.apache.iceberg.encryption.Ciphers::<init>()"
       justification: "Static utility class - should not have public constructor"
   "1.4.0":
+    org.apache.iceberg:iceberg-api:
+    - code: "java.method.addedToInterface"
+      new: "method org.apache.iceberg.RewriteFiles org.apache.iceberg.RewriteFiles::rewriteDeletes(java.util.Set<org.apache.iceberg.DeleteFile>,\
+        \ java.util.Set<org.apache.iceberg.DeleteFile>)"
+      justification: "added for rewrite eq to pos delete"
     org.apache.iceberg:iceberg-core:
     - code: "java.field.serialVersionUIDChanged"
       new: "field org.apache.iceberg.util.SerializableMap<K, V>.serialVersionUID"
