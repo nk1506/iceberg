@@ -79,13 +79,18 @@ final class HiveViewOperations extends BaseViewOperations implements HiveOperati
 
     try {
       table = metaClients.run(client -> client.getTable(database, viewName));
-      HiveOperationsBase.validateTableOrViewIsIceberg(table, fullName);
+      HiveViewOperations.validateTableIsIcebergView(table, fullName);
       metadataLocation =
           table.getParameters().get(BaseMetastoreTableOperations.METADATA_LOCATION_PROP);
 
     } catch (NoSuchObjectException e) {
       if (currentMetadataLocation() != null) {
         throw new NoSuchViewException("View does not exist: %s.%s", database, viewName);
+      }
+    } catch (NoSuchIcebergViewException e) {
+      if (!table.getTableType().equalsIgnoreCase(TableType.VIRTUAL_VIEW.name())) {
+        throw new AlreadyExistsException(
+            "Table with same name already exists: %s.%s", table.getDbName(), table.getTableName());
       }
     } catch (TException e) {
       String errMsg =

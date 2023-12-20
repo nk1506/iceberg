@@ -228,7 +228,7 @@ public class HiveCatalog extends BaseMetastoreViewCatalog
 
     try {
       Table table = clients.run(client -> client.getTable(fromDatabase, fromName));
-      HiveOperationsBase.validateTableOrViewIsIceberg(table, fullTableName(name, from));
+      HiveOperationsBase.validateTableIsIceberg(table, fullTableName(name, from));
 
       table.setDbName(toDatabase);
       table.setTableName(to.name());
@@ -759,5 +759,35 @@ public class HiveCatalog extends BaseMetastoreViewCatalog
   @VisibleForTesting
   ClientPool<IMetaStoreClient, TException> clientPool() {
     return clients;
+  }
+
+  @Override
+  public boolean viewExists(TableIdentifier identifier) {
+    Table hiveTable = loadHiveTable(identifier);
+    return hiveTable != null
+        && hiveTable.getTableType().equalsIgnoreCase(TableType.VIRTUAL_VIEW.name());
+  }
+
+  @Override
+  public boolean tableExists(TableIdentifier identifier) {
+    Table hiveTable = loadHiveTable(identifier);
+    return hiveTable != null
+        && (hiveTable.getTableType().equalsIgnoreCase(TableType.EXTERNAL_TABLE.name())
+            || hiveTable.getTableType().equalsIgnoreCase(TableType.MANAGED_TABLE.name()));
+  }
+
+  private Table loadHiveTable(TableIdentifier identifier) {
+    try {
+      return clients.run(
+          client -> client.getTable(identifier.namespace().level(0), identifier.name()));
+    } catch (NoSuchObjectException e) {
+      return null;
+    } catch (TException e) {
+      throw new RuntimeException(String.format("Metastore operation failed for %s", identifier), e);
+
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Interrupted during commit", e);
+    }
   }
 }
