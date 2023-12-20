@@ -96,14 +96,12 @@ interface HiveOperationsBase {
     }
   }
 
-  static void validateTableOrViewIsIceberg(Table table, String fullName) {
+  static void validateTableIsIceberg(Table table, String fullName) {
     String tableType = table.getParameters().get(BaseMetastoreTableOperations.TABLE_TYPE_PROP);
     NoSuchIcebergTableException.check(
         tableType != null
-            && (tableType.equalsIgnoreCase(BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE)
-                || tableType.equalsIgnoreCase(
-                    BaseMetastoreTableOperations.ICEBERG_VIEW_TYPE_VALUE)),
-        "Not an iceberg table/view: %s (type=%s)",
+            && tableType.equalsIgnoreCase(BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE),
+        "Not an iceberg table: %s (type=%s)",
         fullName,
         tableType);
   }

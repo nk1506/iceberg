@@ -47,6 +47,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.NoSuchIcebergTableException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.hadoop.ConfigProperties;
@@ -147,7 +148,7 @@ public class HiveTableOperations extends BaseMetastoreTableOperations
 
     try {
       table = metaClients.run(client -> client.getTable(database, tableName));
-      HiveOperationsBase.validateTableOrViewIsIceberg(table, fullName);
+      HiveOperationsBase.validateTableIsIceberg(table, fullName);
       metadataLocation = table.getParameters().get(METADATA_LOCATION_PROP);
 
     } catch (NoSuchObjectException e) {
@@ -155,6 +156,11 @@ public class HiveTableOperations extends BaseMetastoreTableOperations
         throw new NoSuchTableException("No such table: %s.%s", database, tableName);
       }
 
+    } catch (NoSuchIcebergTableException e) {
+      if (table.getTableType().equalsIgnoreCase(TableType.VIRTUAL_VIEW.name())) {
+        throw new AlreadyExistsException(
+            "View with same name already exists: %s.%s", table.getDbName(), table.getTableName());
+      }
     } catch (TException e) {
       String errMsg =
           String.format("Failed to get table info from metastore %s.%s", database, tableName);
