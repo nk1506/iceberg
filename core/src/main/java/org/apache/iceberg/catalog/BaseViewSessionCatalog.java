@@ -74,6 +74,15 @@ public abstract class BaseViewSessionCatalog extends BaseSessionCatalog
     }
 
     @Override
+    public boolean dropView(TableIdentifier identifier, boolean purge) {
+      if (purge) {
+        return BaseViewSessionCatalog.this.purgeView(context, identifier);
+      } else {
+        return BaseViewSessionCatalog.this.dropView(context, identifier);
+      }
+    }
+
+    @Override
     public void renameView(TableIdentifier from, TableIdentifier to) {
       BaseViewSessionCatalog.this.renameView(context, from, to);
     }

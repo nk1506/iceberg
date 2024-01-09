@@ -333,6 +333,28 @@ public class InMemoryCatalog extends BaseMetastoreViewCatalog
   }
 
   @Override
+  public boolean dropView(TableIdentifier identifier, boolean purge) {
+    TableOperations ops = newTableOps(identifier);
+    TableMetadata lastMetadata;
+    if (purge && ops.current() != null) {
+      lastMetadata = ops.current();
+    } else {
+      lastMetadata = null;
+    }
+
+    synchronized (this) {
+      if (null == views.remove(identifier)) {
+        return false;
+      }
+    }
+
+    if (purge && lastMetadata != null) {
+      CatalogUtil.dropTableData(ops.io(), lastMetadata);
+    }
+    return true;
+  }
+
+  @Override
   public void renameView(TableIdentifier from, TableIdentifier to) {
     if (from.equals(to)) {
       return;

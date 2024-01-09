@@ -86,6 +86,16 @@ public interface ViewSessionCatalog {
   boolean dropView(SessionCatalog.SessionContext context, TableIdentifier identifier);
 
   /**
+   * Drop a view and request that metadata files are immediately deleted.
+   *
+   * @param context session context
+   * @param ident a table identifier
+   * @return true if the view was dropped and purged, false if the table did not exist
+   * @throws UnsupportedOperationException if immediate delete is not supported
+   */
+  boolean purgeView(SessionCatalog.SessionContext context, TableIdentifier ident);
+
+  /**
    * Rename a view.
    *
    * @param from identifier of the view to rename

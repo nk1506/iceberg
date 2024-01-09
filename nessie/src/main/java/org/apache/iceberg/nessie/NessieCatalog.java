@@ -360,10 +360,15 @@ public class NessieCatalog extends BaseMetastoreViewCatalog
 
   @Override
   public boolean dropView(TableIdentifier identifier) {
+    return dropView(identifier, false);
+  }
+
+  @Override
+  public boolean dropView(TableIdentifier identifier, boolean purge) {
     TableReference tableReference = parseTableReference(identifier);
     return client
         .withReference(tableReference.getReference(), tableReference.getHash())
-        .dropView(identifierWithoutTableReference(identifier, tableReference), false);
+        .dropView(identifierWithoutTableReference(identifier, tableReference), purge);
   }
 
   @Override

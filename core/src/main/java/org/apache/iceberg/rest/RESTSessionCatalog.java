@@ -1082,6 +1082,23 @@ public class RESTSessionCatalog extends BaseViewSessionCatalog
   }
 
   @Override
+  public boolean purgeView(SessionContext context, TableIdentifier identifier) {
+    checkViewIdentifierIsValid(identifier);
+
+    try {
+      client.delete(
+          paths.view(identifier),
+          ImmutableMap.of("purgeRequested", "true"),
+          null,
+          headers(context),
+          ErrorHandlers.viewErrorHandler());
+      return true;
+    } catch (NoSuchViewException e) {
+      return false;
+    }
+  }
+
+  @Override
   public void renameView(SessionContext context, TableIdentifier from, TableIdentifier to) {
     checkViewIdentifierIsValid(from);
     checkViewIdentifierIsValid(to);
