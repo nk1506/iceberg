@@ -376,11 +376,11 @@ public class InMemoryCatalog extends BaseMetastoreViewCatalog
     @Override
     public void doRefresh() {
       String latestLocation = tables.get(tableIdentifier);
-      if (latestLocation == null) {
-        disableRefresh();
-      } else {
-        refreshFromMetadataLocation(latestLocation);
+      if (latestLocation == null && currentMetadataLocation() != null) {
+        throw new NoSuchTableException("No such table: %s", tableIdentifier);
       }
+
+      refreshFromMetadataLocation(latestLocation);
     }
 
     @Override
@@ -447,11 +447,11 @@ public class InMemoryCatalog extends BaseMetastoreViewCatalog
     @Override
     public void doRefresh() {
       String latestLocation = views.get(identifier);
-      if (latestLocation == null) {
-        disableRefresh();
-      } else {
-        refreshFromMetadataLocation(latestLocation);
+      if (latestLocation == null && currentMetadataLocation() != null) {
+        throw new NoSuchViewException("View does not exist: %s", identifier);
       }
+
+      refreshFromMetadataLocation(latestLocation);
     }
 
     @Override
