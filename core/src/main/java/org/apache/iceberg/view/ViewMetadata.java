@@ -18,7 +18,6 @@
  */
 package org.apache.iceberg.view;
 
-import java.io.Serializable;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +26,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import javax.annotation.Nullable;
+import org.apache.iceberg.IcebergMetadata;
 import org.apache.iceberg.MetadataUpdate;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.exceptions.ValidationException;
@@ -44,16 +43,10 @@ import org.slf4j.LoggerFactory;
 @SuppressWarnings("ImmutablesStyle")
 @Value.Immutable(builder = false)
 @Value.Style(allParameters = true, visibilityString = "PACKAGE")
-public interface ViewMetadata extends Serializable {
+public interface ViewMetadata extends IcebergMetadata {
   Logger LOG = LoggerFactory.getLogger(ViewMetadata.class);
   int SUPPORTED_VIEW_FORMAT_VERSION = 1;
   int DEFAULT_VIEW_FORMAT_VERSION = 1;
-
-  String uuid();
-
-  int formatVersion();
-
-  String location();
 
   default Integer currentSchemaId() {
     // fail when accessing the current schema if ViewMetadata was created through the
@@ -68,20 +61,17 @@ public interface ViewMetadata extends Serializable {
     return currentSchemaId;
   }
 
-  List<Schema> schemas();
-
+  @Value.Parameter(order = 1005)
   int currentVersionId();
 
+  @Value.Parameter(order = 1006)
   List<ViewVersion> versions();
 
+  @Value.Parameter(order = 1007)
   List<ViewHistoryEntry> history();
 
-  Map<String, String> properties();
-
+  @Value.Parameter(order = 1009)
   List<MetadataUpdate> changes();
-
-  @Nullable
-  String metadataFileLocation();
 
   default ViewVersion version(int versionId) {
     return versionsById().get(versionId);
@@ -119,6 +109,7 @@ public interface ViewMetadata extends Serializable {
     return builder.build();
   }
 
+  @Override
   default Schema schema() {
     return schemasById().get(currentSchemaId());
   }
