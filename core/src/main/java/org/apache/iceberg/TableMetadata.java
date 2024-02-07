@@ -18,7 +18,6 @@
  */
 package org.apache.iceberg;
 
-import java.io.Serializable;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +46,7 @@ import org.apache.iceberg.util.PropertyUtil;
 import org.apache.iceberg.util.SerializableSupplier;
 
 /** Metadata for a table. */
-public class TableMetadata implements Serializable {
+public class TableMetadata implements IcebergMetadata {
   static final long INITIAL_SEQUENCE_NUMBER = 0;
   static final long INVALID_SEQUENCE_NUMBER = -1;
   static final int DEFAULT_TABLE_FORMAT_VERSION = 2;
@@ -386,14 +385,17 @@ public class TableMetadata implements Serializable {
     validateCurrentSnapshot();
   }
 
+  @Override
   public int formatVersion() {
     return formatVersion;
   }
 
+  @Override
   public String metadataFileLocation() {
     return metadataFileLocation;
   }
 
+  @Override
   public String uuid() {
     return uuid;
   }
@@ -414,10 +416,12 @@ public class TableMetadata implements Serializable {
     return lastColumnId;
   }
 
+  @Override
   public Schema schema() {
     return schemasById.get(currentSchemaId);
   }
 
+  @Override
   public List<Schema> schemas() {
     return schemas;
   }
@@ -470,10 +474,12 @@ public class TableMetadata implements Serializable {
     return sortOrdersById;
   }
 
+  @Override
   public String location() {
     return location;
   }
 
+  @Override
   public Map<String, String> properties() {
     return properties;
   }

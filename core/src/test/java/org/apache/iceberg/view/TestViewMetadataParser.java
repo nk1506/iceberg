@@ -278,13 +278,13 @@ public class TestViewMetadataParser {
             1,
             "s3://bucket/test/location",
             ImmutableList.of(TEST_SCHEMA),
+            ImmutableMap.of("some-key", "some-value"),
+            null,
             1,
             ImmutableList.of(viewVersion),
             ImmutableList.of(
                 ImmutableViewHistoryEntry.builder().versionId(1).timestampMillis(4353).build()),
-            ImmutableMap.of("some-key", "some-value"),
-            ImmutableList.of(),
-            null);
+            ImmutableList.of());
 
     // reading view metadata with multiple SQLs for the same dialects shouldn't fail
     ViewMetadata actual = ViewMetadataParser.fromJson(json);

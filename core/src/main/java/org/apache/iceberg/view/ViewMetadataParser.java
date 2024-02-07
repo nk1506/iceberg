@@ -153,12 +153,12 @@ public class ViewMetadataParser {
         formatVersion,
         location,
         schemas,
+        properties,
+        metadataLocation,
         currentVersionId,
         versions,
         historyEntries,
-        properties,
-        ImmutableList.of(),
-        metadataLocation);
+        ImmutableList.of());
   }
 
   public static void overwrite(ViewMetadata metadata, OutputFile outputFile) {
