@@ -29,9 +29,9 @@ import org.apache.hadoop.hive.metastore.api.InvalidObjectException;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.iceberg.BaseMetadata;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.ClientPool;
-import org.apache.iceberg.IcebergMetadata;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.TableProperties;
@@ -71,25 +71,25 @@ interface HiveOperationsBase {
 
   String table();
 
-  String metadataKeyValue(IcebergMetadata metadata, String key, String defaultValue);
+  String metadataKeyValue(BaseMetadata metadata, String key, String defaultValue);
 
   BaseMetastoreTableOperations.CommitStatus validateNewLocationAndReturnCommitStatus(
-      IcebergMetadata metadata, String newMetadataLocation);
+      BaseMetadata metadata, String newMetadataLocation);
 
-  Set<String> obsoleteProps(IcebergMetadata base, IcebergMetadata metadata);
+  Set<String> obsoleteProps(BaseMetadata base, BaseMetadata metadata);
 
   Table loadHmsTable() throws TException, InterruptedException;
 
   void setHmsParameters(
-      IcebergMetadata metadata,
+      BaseMetadata metadata,
       Table tbl,
       String newMetadataLocation,
       Set<String> obsoleteProps,
       boolean hiveEngineEnabled);
 
-  boolean hiveEngineEnabled(IcebergMetadata metadata);
+  boolean hiveEngineEnabled(BaseMetadata metadata);
 
-  boolean hiveLockEnabled(IcebergMetadata metadata);
+  boolean hiveLockEnabled(BaseMetadata metadata);
 
   default Map<String, String> hmsEnvContext(String metadataLocation) {
     return metadataLocation == null
@@ -152,7 +152,7 @@ interface HiveOperationsBase {
     }
   }
 
-  StorageDescriptor storageDescriptor(IcebergMetadata metadata, boolean hiveEngineEnabled);
+  StorageDescriptor storageDescriptor(BaseMetadata metadata, boolean hiveEngineEnabled);
 
   static StorageDescriptor storageDescriptor(
       Schema schema, String location, boolean hiveEngineEnabled) {
@@ -193,7 +193,7 @@ interface HiveOperationsBase {
     }
   }
 
-  default HiveLock lockObject(IcebergMetadata metadata, Configuration conf, String catalogName) {
+  default HiveLock lockObject(BaseMetadata metadata, Configuration conf, String catalogName) {
     if (hiveLockEnabled(metadata)) {
       return new MetastoreLock(conf, metaClients(), catalogName, database(), table());
     } else {
@@ -233,8 +233,8 @@ interface HiveOperationsBase {
   default void commitWithLocking(
       Configuration conf,
       String catalogName,
-      IcebergMetadata base,
-      IcebergMetadata metadata,
+      BaseMetadata base,
+      BaseMetadata metadata,
       String baseMetadataLocation,
       String newMetadataLocation,
       String fullName,

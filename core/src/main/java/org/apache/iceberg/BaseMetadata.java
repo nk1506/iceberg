@@ -19,25 +19,19 @@
 package org.apache.iceberg;
 
 import java.io.Serializable;
-import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 import org.apache.iceberg.util.PropertyUtil;
 import org.immutables.value.Value;
 
-public interface IcebergMetadata extends Serializable {
-
-  @Value.Parameter(order = 1001)
-  String uuid();
-
-  @Value.Parameter(order = 1002)
-  int formatVersion();
+/**
+ * A base class for {@link TableMetadata} and {@link org.apache.iceberg.view.ViewMetadata} It
+ * abstracts out all the common metadata for table ane view.
+ */
+public interface BaseMetadata extends Serializable {
 
   @Value.Parameter(order = 1003)
   String location();
-
-  @Value.Parameter(order = 1004)
-  List<Schema> schemas();
 
   @Value.Parameter(order = 1008)
   Map<String, String> properties();

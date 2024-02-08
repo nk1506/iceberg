@@ -34,9 +34,9 @@ import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.hive_metastoreConstants;
+import org.apache.iceberg.BaseMetadata;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.ClientPool;
-import org.apache.iceberg.IcebergMetadata;
 import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotSummary;
@@ -185,19 +185,19 @@ public class HiveTableOperations extends BaseMetastoreTableOperations
 
   @Override
   public BaseMetastoreTableOperations.CommitStatus validateNewLocationAndReturnCommitStatus(
-      IcebergMetadata metadata, String newMetadataLocation) {
+      BaseMetadata metadata, String newMetadataLocation) {
     return checkCommitStatus(
         fullName, newMetadataLocation, metadata.properties(), this::loadMetadataLocations);
   }
 
   @Override
-  public StorageDescriptor storageDescriptor(IcebergMetadata metadata, boolean hiveEngineEnabled) {
+  public StorageDescriptor storageDescriptor(BaseMetadata metadata, boolean hiveEngineEnabled) {
     return HiveOperationsBase.storageDescriptor(
         metadata.schema(), metadata.location(), hiveEngineEnabled);
   }
 
   @Override
-  public Set<String> obsoleteProps(IcebergMetadata base, IcebergMetadata metadata) {
+  public Set<String> obsoleteProps(BaseMetadata base, BaseMetadata metadata) {
     Set<String> obsoleteProps = Sets.newHashSet();
     if (base != null) {
       obsoleteProps =
@@ -225,12 +225,12 @@ public class HiveTableOperations extends BaseMetastoreTableOperations
 
   @Override
   public void setHmsParameters(
-      IcebergMetadata icebergMetadata,
+      BaseMetadata baseMetadata,
       Table tbl,
       String newMetadataLocation,
       Set<String> obsoleteProps,
       boolean hiveEngineEnabled) {
-    TableMetadata metadata = (TableMetadata) icebergMetadata;
+    TableMetadata metadata = (TableMetadata) baseMetadata;
     Map<String, String> parameters =
         Optional.ofNullable(tbl.getParameters()).orElseGet(Maps::newHashMap);
 
@@ -391,7 +391,7 @@ public class HiveTableOperations extends BaseMetastoreTableOperations
    * @return if the hive engine related values should be enabled or not
    */
   @Override
-  public boolean hiveEngineEnabled(IcebergMetadata metadata) {
+  public boolean hiveEngineEnabled(BaseMetadata metadata) {
     if (metadata.properties().get(TableProperties.ENGINE_HIVE_ENABLED) != null) {
       // We know that the property is set, so default value will not be used,
       return metadata.propertyAsBoolean(TableProperties.ENGINE_HIVE_ENABLED, false);
@@ -418,7 +418,7 @@ public class HiveTableOperations extends BaseMetastoreTableOperations
    * @return if the hive engine related values should be enabled or not
    */
   @Override
-  public boolean hiveLockEnabled(IcebergMetadata metadata) {
+  public boolean hiveLockEnabled(BaseMetadata metadata) {
     if (metadata.properties().get(TableProperties.HIVE_LOCK_ENABLED) != null) {
       // We know that the property is set, so default value will not be used,
       return metadata.propertyAsBoolean(TableProperties.HIVE_LOCK_ENABLED, false);
@@ -429,7 +429,7 @@ public class HiveTableOperations extends BaseMetastoreTableOperations
   }
 
   @Override
-  public String metadataKeyValue(IcebergMetadata metadata, String key, String defaultValue) {
+  public String metadataKeyValue(BaseMetadata metadata, String key, String defaultValue) {
     return metadata.property(key, defaultValue);
   }
 }

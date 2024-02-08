@@ -46,7 +46,7 @@ import org.apache.iceberg.util.PropertyUtil;
 import org.apache.iceberg.util.SerializableSupplier;
 
 /** Metadata for a table. */
-public class TableMetadata implements IcebergMetadata {
+public class TableMetadata implements BaseMetadata {
   static final long INITIAL_SEQUENCE_NUMBER = 0;
   static final long INVALID_SEQUENCE_NUMBER = -1;
   static final int DEFAULT_TABLE_FORMAT_VERSION = 2;
@@ -385,7 +385,6 @@ public class TableMetadata implements IcebergMetadata {
     validateCurrentSnapshot();
   }
 
-  @Override
   public int formatVersion() {
     return formatVersion;
   }
@@ -395,7 +394,6 @@ public class TableMetadata implements IcebergMetadata {
     return metadataFileLocation;
   }
 
-  @Override
   public String uuid() {
     return uuid;
   }
@@ -421,7 +419,6 @@ public class TableMetadata implements IcebergMetadata {
     return schemasById.get(currentSchemaId);
   }
 
-  @Override
   public List<Schema> schemas() {
     return schemas;
   }

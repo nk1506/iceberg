@@ -26,7 +26,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.apache.iceberg.IcebergMetadata;
+import org.apache.iceberg.BaseMetadata;
 import org.apache.iceberg.MetadataUpdate;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.exceptions.ValidationException;
@@ -43,7 +43,7 @@ import org.slf4j.LoggerFactory;
 @SuppressWarnings("ImmutablesStyle")
 @Value.Immutable(builder = false)
 @Value.Style(allParameters = true, visibilityString = "PACKAGE")
-public interface ViewMetadata extends IcebergMetadata {
+public interface ViewMetadata extends BaseMetadata {
   Logger LOG = LoggerFactory.getLogger(ViewMetadata.class);
   int SUPPORTED_VIEW_FORMAT_VERSION = 1;
   int DEFAULT_VIEW_FORMAT_VERSION = 1;
@@ -60,6 +60,15 @@ public interface ViewMetadata extends IcebergMetadata {
 
     return currentSchemaId;
   }
+
+  @Value.Parameter(order = 1001)
+  String uuid();
+
+  @Value.Parameter(order = 1002)
+  int formatVersion();
+
+  @Value.Parameter(order = 1004)
+  List<Schema> schemas();
 
   @Value.Parameter(order = 1005)
   int currentVersionId();
