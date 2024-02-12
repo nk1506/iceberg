@@ -18,6 +18,7 @@
  */
 package org.apache.iceberg.nessie;
 
+import org.apache.iceberg.BaseMetadata;
 import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.view.BaseViewOperations;
@@ -91,7 +92,10 @@ public class NessieViewOperations extends BaseViewOperations {
   }
 
   @Override
-  public void doCommit(ViewMetadata base, ViewMetadata metadata) {
+  public void doCommit(BaseMetadata baseMetadata, BaseMetadata newMetadata) {
+    ViewMetadata metadata = (ViewMetadata) newMetadata;
+    ViewMetadata base = (ViewMetadata) baseMetadata;
+
     String newMetadataLocation = writeNewMetadataIfRequired(metadata);
 
     boolean failure = false;

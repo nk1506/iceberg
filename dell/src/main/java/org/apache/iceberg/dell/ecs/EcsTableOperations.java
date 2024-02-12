@@ -19,6 +19,7 @@
 package org.apache.iceberg.dell.ecs;
 
 import java.util.Map;
+import org.apache.iceberg.BaseMetadata;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -40,7 +41,7 @@ public class EcsTableOperations extends BaseMetastoreTableOperations {
    * Cached E-Tag for CAS commit
    *
    * @see #doRefresh() when reset this field
-   * @see #doCommit(TableMetadata, TableMetadata) when use this field
+   * @see BaseMetastoreTableOperations#doCommit(BaseMetadata, BaseMetadata) when use this field
    */
   private String eTag;
 
@@ -86,7 +87,9 @@ public class EcsTableOperations extends BaseMetastoreTableOperations {
   }
 
   @Override
-  protected void doCommit(TableMetadata base, TableMetadata metadata) {
+  protected void doCommit(BaseMetadata baseMetadata, BaseMetadata newMetadata) {
+    TableMetadata metadata = (TableMetadata) newMetadata;
+    TableMetadata base = (TableMetadata) baseMetadata;
     boolean newTable = base == null;
     String newMetadataLocation = writeNewMetadataIfRequired(newTable, metadata);
     if (base == null) {

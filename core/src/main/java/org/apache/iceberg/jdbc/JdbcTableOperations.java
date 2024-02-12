@@ -29,6 +29,7 @@ import java.sql.SQLTransientConnectionException;
 import java.sql.SQLWarning;
 import java.util.Map;
 import java.util.Objects;
+import org.apache.iceberg.BaseMetadata;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.Namespace;
@@ -101,7 +102,9 @@ class JdbcTableOperations extends BaseMetastoreTableOperations {
   }
 
   @Override
-  public void doCommit(TableMetadata base, TableMetadata metadata) {
+  public void doCommit(BaseMetadata baseMetadata, BaseMetadata newMetadata) {
+    TableMetadata metadata = (TableMetadata) newMetadata;
+    TableMetadata base = (TableMetadata) baseMetadata;
     boolean newTable = base == null;
     String newMetadataLocation = writeNewMetadataIfRequired(newTable, metadata);
     try {

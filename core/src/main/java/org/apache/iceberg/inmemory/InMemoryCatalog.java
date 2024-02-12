@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
+import org.apache.iceberg.BaseMetadata;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
@@ -390,7 +391,10 @@ public class InMemoryCatalog extends BaseMetastoreViewCatalog
     }
 
     @Override
-    public void doCommit(TableMetadata base, TableMetadata metadata) {
+    public void doCommit(BaseMetadata baseMetadata, BaseMetadata newMetadata) {
+      TableMetadata metadata = (TableMetadata) newMetadata;
+      TableMetadata base = (TableMetadata) baseMetadata;
+
       String newLocation = writeNewMetadataIfRequired(base == null, metadata);
       String oldLocation = base == null ? null : base.metadataFileLocation();
 
@@ -461,7 +465,10 @@ public class InMemoryCatalog extends BaseMetastoreViewCatalog
     }
 
     @Override
-    public void doCommit(ViewMetadata base, ViewMetadata metadata) {
+    public void doCommit(BaseMetadata baseMetadata, BaseMetadata newMetadata) {
+      ViewMetadata metadata = (ViewMetadata) newMetadata;
+      ViewMetadata base = (ViewMetadata) baseMetadata;
+
       String newLocation = writeNewMetadataIfRequired(metadata);
       String oldLocation = base == null ? null : currentMetadataLocation();
 

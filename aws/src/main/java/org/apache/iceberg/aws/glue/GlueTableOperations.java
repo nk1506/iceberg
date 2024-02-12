@@ -21,6 +21,7 @@ package org.apache.iceberg.aws.glue;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import org.apache.iceberg.BaseMetadata;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
@@ -142,7 +143,10 @@ class GlueTableOperations extends BaseMetastoreTableOperations {
   }
 
   @Override
-  protected void doCommit(TableMetadata base, TableMetadata metadata) {
+  protected void doCommit(BaseMetadata baseMetadata, BaseMetadata newMetadata) {
+    TableMetadata metadata = (TableMetadata) newMetadata;
+    TableMetadata base = (TableMetadata) baseMetadata;
+
     CommitStatus commitStatus = CommitStatus.FAILURE;
     RetryDetector retryDetector = new RetryDetector();
 

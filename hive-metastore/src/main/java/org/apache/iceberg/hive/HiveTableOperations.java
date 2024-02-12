@@ -34,6 +34,7 @@ import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.hive_metastoreConstants;
+import org.apache.iceberg.BaseMetadata;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.PartitionSpecParser;
@@ -164,7 +165,10 @@ public class HiveTableOperations extends BaseMetastoreTableOperations
   }
 
   @Override
-  protected void doCommit(TableMetadata base, TableMetadata metadata) {
+  protected void doCommit(BaseMetadata baseMetadata, BaseMetadata newMetadata) {
+    TableMetadata metadata = (TableMetadata) newMetadata;
+    TableMetadata base = (TableMetadata) baseMetadata;
+
     boolean newTable = base == null;
     String newMetadataLocation = writeNewMetadataIfRequired(newTable, metadata);
     String baseMetadataLocation = base != null ? base.metadataFileLocation() : null;

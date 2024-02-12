@@ -22,10 +22,9 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import org.apache.iceberg.BaseMetadata;
 import org.apache.iceberg.BaseMetastoreOperations;
 import org.apache.iceberg.TableMetadataParser;
-import org.apache.iceberg.exceptions.AlreadyExistsException;
-import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.io.FileIO;
@@ -48,6 +47,7 @@ public abstract class BaseViewOperations extends BaseMetastoreOperations impleme
 
   protected BaseViewOperations() {}
 
+  @Override
   protected void requestRefresh() {
     this.shouldRefresh = true;
   }
@@ -58,7 +58,8 @@ public abstract class BaseViewOperations extends BaseMetastoreOperations impleme
 
   protected abstract void doRefresh();
 
-  protected abstract void doCommit(ViewMetadata base, ViewMetadata metadata);
+  @Deprecated
+  protected void doCommit(ViewMetadata base, ViewMetadata metadata) {}
 
   protected abstract String viewName();
 
@@ -103,32 +104,21 @@ public abstract class BaseViewOperations extends BaseMetastoreOperations impleme
 
   @Override
   public void commit(ViewMetadata base, ViewMetadata metadata) {
-    // if the metadata is already out of date, reject it
-    if (base != current()) {
-      if (base != null) {
-        throw new CommitFailedException("Cannot commit: stale view metadata");
-      } else {
-        // when current is non-null, the view exists. but when base is null, the commit is trying
-        // to create the view
-        throw new AlreadyExistsException("View already exists: %s", viewName());
-      }
-    }
-
-    // if the metadata is not changed, return early
-    if (base == metadata) {
-      LOG.info("Nothing to commit.");
-      return;
-    }
-
-    long start = System.currentTimeMillis();
-    doCommit(base, metadata);
-    requestRefresh();
-
-    LOG.info(
-        "Successfully committed to view {} in {} ms",
-        viewName(),
-        System.currentTimeMillis() - start);
+    commitHelper(base, metadata);
   }
+
+  @Override
+  protected boolean isStale(BaseMetadata baseMetadata) {
+    return baseMetadata != current();
+  }
+
+  @Override
+  protected String opName() {
+    return viewName();
+  }
+
+  @Override
+  protected void deleteRemovedMetadataFiles(BaseMetadata baseMetadata, BaseMetadata newMetadata) {}
 
   private String writeNewMetadata(ViewMetadata metadata, int newVersion) {
     String newMetadataFilePath = newMetadataFilePath(metadata, newVersion);

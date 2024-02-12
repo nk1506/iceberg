@@ -31,13 +31,60 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.apache.iceberg.exceptions.AlreadyExistsException;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.util.PropertyUtil;
 import org.apache.iceberg.util.Tasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class BaseMetastoreOperations {
+public abstract class BaseMetastoreOperations {
   private static final Logger LOG = LoggerFactory.getLogger(BaseMetastoreOperations.class);
+
+  public void commitHelper(BaseMetadata base, BaseMetadata metadata) {
+    String op = metadata instanceof TableMetadata ? "Table" : "View";
+    String opLowerCase = op.toLowerCase();
+    String opName = opName();
+    // if the metadata is already out of date, reject it
+    if (isStale(base)) {
+      if (base != null) {
+        throw new CommitFailedException("Cannot commit: stale table metadata");
+      } else {
+        // when current is non-null, the table exists. but when base is null, the commit is trying
+        // to create the table
+        throw new AlreadyExistsException("Table already exists: %s", opName());
+      }
+    }
+    // if the metadata is not changed, return early
+    if (base == metadata) {
+      LOG.info("Nothing to commit.");
+      return;
+    }
+
+    long start = System.currentTimeMillis();
+    doCommit(base, metadata);
+    deleteRemovedMetadataFiles(base, metadata);
+    requestRefresh();
+
+    LOG.info(
+        "Successfully committed to {} {} in {} ms",
+        opLowerCase,
+        opName,
+        System.currentTimeMillis() - start);
+  }
+
+  protected abstract String opName();
+
+  protected abstract boolean isStale(BaseMetadata baseMetadata);
+
+  protected abstract void requestRefresh();
+
+  protected abstract void deleteRemovedMetadataFiles(
+      BaseMetadata baseMetadata, BaseMetadata newMetadata);;
+
+  protected void doCommit(BaseMetadata baseMetadata, BaseMetadata newMetadata) {
+    throw new UnsupportedOperationException("Not implemented: doCommit");
+  }
 
   /**
    * Attempt to load the table and see if any current or past metadata location matches the one we

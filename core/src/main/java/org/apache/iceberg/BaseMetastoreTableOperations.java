@@ -26,8 +26,6 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import org.apache.iceberg.encryption.EncryptionManager;
-import org.apache.iceberg.exceptions.AlreadyExistsException;
-import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.io.FileIO;
@@ -109,37 +107,25 @@ public abstract class BaseMetastoreTableOperations extends BaseMetastoreOperatio
 
   @Override
   public void commit(TableMetadata base, TableMetadata metadata) {
-    // if the metadata is already out of date, reject it
-    if (base != current()) {
-      if (base != null) {
-        throw new CommitFailedException("Cannot commit: stale table metadata");
-      } else {
-        // when current is non-null, the table exists. but when base is null, the commit is trying
-        // to create the table
-        throw new AlreadyExistsException("Table already exists: %s", tableName());
-      }
-    }
-    // if the metadata is not changed, return early
-    if (base == metadata) {
-      LOG.info("Nothing to commit.");
-      return;
-    }
-
-    long start = System.currentTimeMillis();
-    doCommit(base, metadata);
-    deleteRemovedMetadataFiles(base, metadata);
-    requestRefresh();
-
-    LOG.info(
-        "Successfully committed to table {} in {} ms",
-        tableName(),
-        System.currentTimeMillis() - start);
+    commitHelper(base, metadata);
   }
 
+  @Override
+  protected boolean isStale(BaseMetadata baseMetadata) {
+    return baseMetadata != current();
+  }
+
+  @Override
+  protected String opName() {
+    return tableName();
+  }
+
+  @Deprecated
   protected void doCommit(TableMetadata base, TableMetadata metadata) {
     throw new UnsupportedOperationException("Not implemented: doCommit");
   }
 
+  @Override
   protected void requestRefresh() {
     this.shouldRefresh = true;
   }
@@ -355,10 +341,13 @@ public abstract class BaseMetastoreTableOperations extends BaseMetastoreOperatio
    * Deletes the oldest metadata files if {@link
    * TableProperties#METADATA_DELETE_AFTER_COMMIT_ENABLED} is true.
    *
-   * @param base table metadata on which previous versions were based
-   * @param metadata new table metadata with updated previous versions
+   * @param baseMetadata table metadata on which previous versions were based
+   * @param newMetadata new table metadata with updated previous versions
    */
-  private void deleteRemovedMetadataFiles(TableMetadata base, TableMetadata metadata) {
+  @Override
+  protected void deleteRemovedMetadataFiles(BaseMetadata baseMetadata, BaseMetadata newMetadata) {
+    TableMetadata metadata = (TableMetadata) newMetadata;
+    TableMetadata base = (TableMetadata) baseMetadata;
     if (base == null) {
       return;
     }
