@@ -68,6 +68,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.exceptions.NoSuchIcebergTableException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.hadoop.ConfigProperties;
@@ -344,6 +345,36 @@ public class HiveTableTest extends HiveTableBaseTest {
     catalog.setListAllTables(true);
     List<TableIdentifier> tableIdents2 = catalog.listTables(TABLE_IDENTIFIER.namespace());
     assertThat(tableIdents2).as("should be 2 tables in namespace .").hasSize(2);
+
+    assertThat(catalog.tableExists(TABLE_IDENTIFIER)).isTrue();
+    HIVE_METASTORE_EXTENSION.metastoreClient().dropTable(DB_NAME, hiveTableName);
+  }
+
+  @Test
+  public void testHiveTableAndIcebergTableWithSameName() throws TException, IOException {
+    List<TableIdentifier> tableIdents = catalog.listTables(TABLE_IDENTIFIER.namespace());
+    assertThat(tableIdents).as("should be 1 table in namespace .").hasSize(1);
+
+    // create a hive table
+    String hiveTableName = "test_hive_table";
+    org.apache.hadoop.hive.metastore.api.Table hiveTable = createHiveTable(hiveTableName);
+    HIVE_METASTORE_EXTENSION.metastoreClient().createTable(hiveTable);
+
+    catalog.setListAllTables(true);
+    List<TableIdentifier> tableIdents2 = catalog.listTables(TABLE_IDENTIFIER.namespace());
+    assertThat(tableIdents2).as("should be 2 tables in namespace .").hasSize(2);
+
+    TableIdentifier identifierWithHiveTableName = TableIdentifier.of(DB_NAME, hiveTableName);
+
+    // create an iceberg table with the same name
+    assertThatThrownBy(
+            () ->
+                catalog.createTable(
+                    identifierWithHiveTableName, schema, PartitionSpec.unpartitioned()))
+        .isInstanceOf(NoSuchIcebergTableException.class)
+        .hasMessageStartingWith("Not an iceberg table: hive.hivedb.test_hive_table");
+
+    assertThat(catalog.tableExists(identifierWithHiveTableName)).isFalse();
 
     assertThat(catalog.tableExists(TABLE_IDENTIFIER)).isTrue();
     HIVE_METASTORE_EXTENSION.metastoreClient().dropTable(DB_NAME, hiveTableName);
