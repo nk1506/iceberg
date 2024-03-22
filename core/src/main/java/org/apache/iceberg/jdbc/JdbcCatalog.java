@@ -822,14 +822,16 @@ public class JdbcCatalog extends BaseMetastoreViewCatalog
   }
 
   /**
-   * The purpose of this class is to add view detection only when SchemaVersion.V1 schema is used
-   * when replacing a table.
+   * Current implementation of #{@link BaseMetastoreViewCatalogTableBuilder#replaceTransaction()} is
+   * a generic method to check,If view already exists with same identifier. The purpose of this
+   * class is to add jdbc specific view detection only when SchemaVersion.V1 schema is used when
+   * replacing a table.
    */
-  protected class ViewAwareTableBuilder extends BaseMetastoreCatalogTableBuilder {
+  private class ViewAwareTableBuilder extends BaseMetastoreViewCatalogTableBuilder {
 
     private final TableIdentifier identifier;
 
-    public ViewAwareTableBuilder(TableIdentifier identifier, Schema schema) {
+    private ViewAwareTableBuilder(TableIdentifier identifier, Schema schema) {
       super(identifier, schema);
       this.identifier = identifier;
     }

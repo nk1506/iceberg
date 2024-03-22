@@ -1018,6 +1018,18 @@ acceptedBreaks:
       old: "method void org.apache.iceberg.PositionDeletesTable.PositionDeletesBatchScan::<init>(org.apache.iceberg.Table,\
         \ org.apache.iceberg.Schema, org.apache.iceberg.TableScanContext)"
       justification: "Removing deprecated code"
+  "1.5.0":
+    org.apache.iceberg:iceberg-core:
+    - code: "java.class.visibilityReduced"
+      old: "class org.apache.iceberg.jdbc.JdbcCatalog.ViewAwareTableBuilder"
+      new: "class org.apache.iceberg.jdbc.JdbcCatalog.ViewAwareTableBuilder"
+      justification: "ViewAwareTableBuilder should be visible only within JdbcCatalog"
+    - code: "java.method.visibilityReduced"
+      old: "method void org.apache.iceberg.jdbc.JdbcCatalog.ViewAwareTableBuilder::<init>(org.apache.iceberg.catalog.TableIdentifier,\
+        \ org.apache.iceberg.Schema)"
+      new: "method void org.apache.iceberg.jdbc.JdbcCatalog.ViewAwareTableBuilder::<init>(org.apache.iceberg.catalog.TableIdentifier,\
+        \ org.apache.iceberg.Schema)"
+      justification: "ViewAwareTableBuilder should be visible only within JdbcCatalog"
   apache-iceberg-0.14.0:
     org.apache.iceberg:iceberg-api:
     - code: "java.class.defaultSerializationChanged"
