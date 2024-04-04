@@ -18,6 +18,7 @@
  */
 package org.apache.iceberg.flink.sink.shuffle;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -133,7 +134,7 @@ public class MapRangePartitionerBenchmark {
       buffer[i] = (byte) CHARS.charAt(ThreadLocalRandom.current().nextInt(CHARS.length()));
     }
 
-    return prefix + new String(buffer);
+    return prefix + new String(buffer, StandardCharsets.UTF_8);
   }
 
   /** find the index where weightsUDF[index] < weight && weightsUDF[index+1] >= weight */
