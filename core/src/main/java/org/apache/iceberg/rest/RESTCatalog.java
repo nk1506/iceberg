@@ -289,6 +289,11 @@ public class RESTCatalog
   }
 
   @Override
+  public boolean dropView(TableIdentifier identifier, boolean purge) {
+    return viewSessionCatalog.dropView(identifier, purge);
+  }
+
+  @Override
   public void renameView(TableIdentifier from, TableIdentifier to) {
     viewSessionCatalog.renameView(from, to);
   }

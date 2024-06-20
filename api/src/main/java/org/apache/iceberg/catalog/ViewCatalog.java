@@ -83,7 +83,20 @@ public interface ViewCatalog {
    * @param identifier a view identifier
    * @return true if the view was dropped, false if the view did not exist
    */
-  boolean dropView(TableIdentifier identifier);
+  default boolean dropView(TableIdentifier identifier) {
+    return dropView(identifier, true);
+  }
+
+  /**
+   * Drop a view; optionally delete metadata files.
+   *
+   * <p>If purge is set to true the implementation should delete metadata files.
+   *
+   * @param identifier a table identifier
+   * @param purge if true, delete metadata files in the view
+   * @return true if the view was dropped, false if the view did not exist
+   */
+  boolean dropView(TableIdentifier identifier, boolean purge);
 
   /**
    * Rename a view.
