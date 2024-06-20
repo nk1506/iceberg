@@ -64,7 +64,7 @@ public class OutputFileFactory {
    * @param operationId Third part of the file name
    * @param suffix Suffix part of the file name
    */
-  private OutputFileFactory(
+  public OutputFileFactory(
       PartitionSpec spec,
       FileFormat format,
       LocationProvider locations,
