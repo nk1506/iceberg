@@ -398,7 +398,7 @@ public class Parquet {
           parquetWriteBuilder.withBloomFilterFPP(colPath, Double.parseDouble(fpp));
         }
 
-        return new ParquetWriteAdapter<>(parquetWriteBuilder.build(), metricsConfig);
+        return null;
       }
     }
 
